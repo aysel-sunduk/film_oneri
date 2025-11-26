@@ -1,34 +1,40 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { ThemeProvider } from '@mui/material/styles'
+import theme from './theme'
+import CssBaseline from '@mui/material/CssBaseline'
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+
+// Sayfa bileşenlerini import edin
+import LoginPage from './pages/Login'
+import RegisterPage from './pages/Register'
+// Diğer sayfaları placeholder olarak ekleyelim:
+import MoodSelectionPage from './pages/MoodSelection' 
+import RecommendedMoviesPage from './pages/RecommendedMovies'
+import MovieDetailPage from './pages/MovieDetail'
+import UserHistoryPage from './pages/UserHistory'
+import Navbar from './components/Navbar';
 
 function App() {
-  const [count, setCount] = useState(0)
-
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
+    <ThemeProvider theme={theme}>
+      <CssBaseline /> 
+      <Router>
+        <Navbar /> {/* Tüm sayfalarda navbar göster */}
+        <Routes>
+          {/* Kimlik Doğrulama Rotları */}
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+
+          {/* Ana Uygulama Rotları */}
+          <Route path="/" element={<MoodSelectionPage />} /> {/* Varsayılan ana sayfa */}
+          <Route path="/movies" element={<RecommendedMoviesPage />} />
+          <Route path="/movies/:id" element={<MovieDetailPage />} />
+          <Route path="/history" element={<UserHistoryPage />} />
+
+          {/* 404 Sayfası (İsteğe bağlı) */}
+          {/* <Route path="*" element={<NotFoundPage />} /> */}
+        </Routes>
+      </Router>
+    </ThemeProvider>
   )
 }
 
