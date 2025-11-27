@@ -1,12 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppBar, Toolbar, Typography, Button, Box, IconButton, Menu, MenuItem } from '@mui/material';
 import MovieIcon from '@mui/icons-material/Movie';
 import MenuIcon from '@mui/icons-material/Menu';
 import { Link, useNavigate } from 'react-router-dom';
 
 const Navbar = () => {
-  const [isLoggedIn, setIsLoggedIn] = useState(true); 
   const navigate = useNavigate();
+
+  // 🔥 TOKEN'A GÖRE GİRİŞ DURUMU
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    return !!localStorage.getItem("token");
+  });
+
+  // Login'den dönünce Navbar güncellensin
+  useEffect(() => {
+    const checkLogin = () => {
+      setIsLoggedIn(!!localStorage.getItem("token"));
+    };
+    window.addEventListener("storage", checkLogin);
+    return () => window.removeEventListener("storage", checkLogin);
+  }, []);
+
+  // Mobil menü kontrolü
   const [anchorElNav, setAnchorElNav] = useState(null);
 
   const handleOpenNavMenu = (event) => {
@@ -17,13 +32,14 @@ const Navbar = () => {
     setAnchorElNav(null);
   };
 
+  // Çıkış butonu
   const handleLogout = () => {
-    setIsLoggedIn(false);
-    handleCloseNavMenu();
-    navigate('/login');
-    console.log('Çıkış yapıldı.');
-  };
+  localStorage.removeItem("token");
+  window.location.href = "/login";
+};
 
+
+  // Gösterilecek menü seçenekleri
   const navItems = [
     { label: 'Mood Seçimi', path: '/' },
     { label: 'Önerilenler', path: '/movies' },
@@ -34,9 +50,9 @@ const Navbar = () => {
     <AppBar position="sticky" sx={{ bgcolor: 'background.paper', boxShadow: 3 }}>
       <Toolbar sx={{ justifyContent: 'space-between', minHeight: { xs: 64, md: 70 } }}>
         
-        {/* Sol Taraf: Logo ve Başlık */}
+        {/* Sol Logo */}
         <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: { xs: 1, md: 0 } }}>
-          {/* Masaüstü Logo */}
+          {/* Masaüstü */}
           <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', mr: 3 }}>
             <MovieIcon sx={{ fontSize: 32, color: 'primary.main', mr: 1.5 }} />
             <Typography
@@ -54,20 +70,18 @@ const Navbar = () => {
             </Typography>
           </Box>
 
-          {/* Mobil Menü Butonu ve Logo */}
+          {/* Mobil Menü Butonu */}
           <Box sx={{ display: { xs: 'flex', md: 'none' }, alignItems: 'center', flexGrow: 1 }}>
             <IconButton
               size="large"
               aria-label="app menu"
-              aria-controls="menu-appbar"
-              aria-haspopup="true"
               onClick={handleOpenNavMenu}
               color="inherit"
               sx={{ mr: 1 }}
             >
               <MenuIcon />
             </IconButton>
-            
+
             <MovieIcon sx={{ fontSize: 28, color: 'primary.main', mr: 1 }} />
             <Typography
               variant="h6"
@@ -86,10 +100,10 @@ const Navbar = () => {
           </Box>
         </Box>
 
-        {/* Orta: Navigasyon Linkleri (Masaüstü) */}
+        {/* Orta Menü (Masaüstü) */}
         <Box sx={{ 
-          display: { xs: 'none', md: 'flex' }, 
-          justifyContent: 'center', 
+          display: { xs: 'none', md: 'flex' },
+          justifyContent: 'center',
           flexGrow: 1,
           gap: 1
         }}>
@@ -98,14 +112,14 @@ const Navbar = () => {
               key={item.label}
               component={Link}
               to={item.path}
-              sx={{ 
-                color: 'text.primary', 
+              sx={{
+                color: 'text.primary',
                 fontWeight: 500,
                 px: 2,
-                '&:hover': { 
-                  bgcolor: 'primary.light', 
-                  color: 'white' 
-                } 
+                '&:hover': {
+                  bgcolor: 'primary.light',
+                  color: 'white'
+                }
               }}
             >
               {item.label}
@@ -113,14 +127,14 @@ const Navbar = () => {
           ))}
         </Box>
 
-        {/* Sağ Taraf: Kimlik Doğrulama Butonları */}
+        {/* Sağ Menü (Login/Logout) */}
         <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center' }}>
           {isLoggedIn ? (
             <Button 
-              onClick={handleLogout} 
-              variant="outlined" 
-              sx={{ 
-                borderColor: 'secondary.main', 
+              onClick={handleLogout}
+              variant="outlined"
+              sx={{
+                borderColor: 'secondary.main',
                 color: 'secondary.main',
                 '&:hover': {
                   bgcolor: 'secondary.main',
@@ -131,34 +145,10 @@ const Navbar = () => {
               Çıkış Yap
             </Button>
           ) : (
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Button 
-                component={Link} 
-                to="/login" 
-                sx={{ 
-                  color: 'text.primary',
-                  '&:hover': {
-                    bgcolor: 'primary.light',
-                    color: 'white'
-                  }
-                }}
-              >
-                Giriş Yap
-              </Button>
-              <Button 
-                component={Link} 
-                to="/register" 
-                variant="contained" 
-                sx={{ 
-                  bgcolor: 'primary.main',
-                  '&:hover': {
-                    bgcolor: 'primary.dark'
-                  }
-                }}
-              >
-                Kayıt Ol
-              </Button>
-            </Box>
+            <>
+              <Button component={Link} to="/login">Giriş Yap</Button>
+              <Button component={Link} to="/register" variant="contained">Kayıt Ol</Button>
+            </>
           )}
         </Box>
 
@@ -166,30 +156,28 @@ const Navbar = () => {
         <Menu
           id="menu-appbar"
           anchorEl={anchorElNav}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-          keepMounted
-          transformOrigin={{ vertical: 'top', horizontal: 'left' }}
           open={Boolean(anchorElNav)}
           onClose={handleCloseNavMenu}
           sx={{ display: { xs: 'block', md: 'none' } }}
         >
           {isLoggedIn && navItems.map((item) => (
-            <MenuItem 
-              key={item.label} 
-              onClick={handleCloseNavMenu} 
-              component={Link} 
+            <MenuItem
+              key={item.label}
+              onClick={handleCloseNavMenu}
+              component={Link}
               to={item.path}
             >
-              <Typography textAlign="center">{item.label}</Typography>
+              <Typography>{item.label}</Typography>
             </MenuItem>
           ))}
-          
-          <MenuItem onClick={isLoggedIn ? handleLogout : () => { navigate('/login'); handleCloseNavMenu(); }}>
-            <Typography textAlign="center">
-              {isLoggedIn ? 'Çıkış Yap' : 'Giriş Yap'}
-            </Typography>
+
+          <MenuItem
+            onClick={isLoggedIn ? handleLogout : () => navigate('/login')}
+          >
+            <Typography>{isLoggedIn ? 'Çıkış Yap' : 'Giriş Yap'}</Typography>
           </MenuItem>
         </Menu>
+
       </Toolbar>
     </AppBar>
   );
