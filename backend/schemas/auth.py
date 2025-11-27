@@ -38,6 +38,7 @@ class LoginResponse(BaseModel):
 
     success: bool = Field(..., description="İşlem başarılı mı")
     token: str = Field(..., description="JWT access token")
+    refresh_token: str | None = Field(None, description="Refresh token (long-lived)")
     user_id: int = Field(..., description="Kullanıcı ID'si")
 
 

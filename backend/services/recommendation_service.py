@@ -1,14 +1,12 @@
 """
 Öneri ve duygu tahmini servis katmanı.
-- Ruh haliye (mood) göre kişiselleştirilmiş film önerileri
+- Ruh haline (mood) göre kişiselleştirilmiş film önerileri
 - Emotion tablosundan duygu etiketi getirme
 - ML modeliyle duygu tahmini
 """
 
 from typing import List, Optional
-
 from sqlalchemy.orm import Session
-
 from backend.db.models import Emotion, Movie, UserHistory
 
 
@@ -21,42 +19,39 @@ def get_recommendations_for_user(
 ) -> List[dict]:
     """
     Kullanıcıya kişiselleştirilmiş film önerileri sunar.
-    
-    Strateji:
-    1. Kullanıcının daha önce izledikleri filmleri hariç tut
-    2. İsterse mood (duygu) filtresi uygula → emotions tablosundan eşleştir
-    3. İsterse genre filtresi uygula
-    4. IMDB puanına göre sıralanmış sonuç döndür
-    
-    Args:
-        db: SQLAlchemy Session
-        user_id: Kullanıcı ID'si
-        mood: Opsiyonel mood filtresi (örn: happy, sad, dramatic)
-        genre: Opsiyonel genre filtresi
-        limit: Kaç film önerilsin (max 50)
-    
-    Returns:
-        Önerilen filmler listesi (dict formatında)
     """
     # Başlangıç sorgusu
     query = db.query(Movie)
 
     # 1. Kullanıcının izledikleri filmleri hariç tut
-    watched_ids = (
-        db.query(UserHistory.movie_id)
-        .filter(UserHistory.user_id == user_id)
-        .subquery()
+    watched_ids = db.query(UserHistory.movie_id).filter(
+        UserHistory.user_id == user_id
     )
-    query = query.filter(Movie.movie_id.notin_(watched_ids))
+    watched_ids_list = [id[0] for id in watched_ids.all() if id[0] is not None]
+    
+    if watched_ids_list:
+        query = query.filter(Movie.movie_id.notin_(watched_ids_list))
 
     # 2. Mood filtrelemesi (emotions tablosundan)
     if mood:
-        emotion_movie_ids = (
-            db.query(Emotion.movie_id)
-            .filter(Emotion.emotion_label.ilike(f"%{mood}%"))
-            .subquery()
+        # Mood'u Türkçe'den İngilizce'ye çevir (emotions tablosu İngilizce olabilir)
+        mood_mapping = {
+            "mutlu": "happy",
+            "hüzünlü": "sad", 
+            "heyecanlı": "exciting",
+            "rahat": "relaxed",
+            "sakin": "calm"
+        }
+        
+        english_mood = mood_mapping.get(mood.lower(), mood.lower())
+        
+        emotion_movie_ids = db.query(Emotion.movie_id).filter(
+            Emotion.emotion_label.ilike(f"%{english_mood}%")
         )
-        query = query.filter(Movie.movie_id.in_(emotion_movie_ids))
+        emotion_ids_list = [id[0] for id in emotion_movie_ids.all() if id[0] is not None]
+        
+        if emotion_ids_list:
+            query = query.filter(Movie.movie_id.in_(emotion_ids_list))
 
     # 3. Genre filtrelemesi
     if genre:
@@ -69,7 +64,7 @@ def get_recommendations_for_user(
         .all()
     )
 
-    # 5. Sonuçları formatla (emotion label ekleyerek)
+    # 5. Sonuçları formatla
     results: List[dict] = []
     for m in movies:
         # Her film için emotion etiketi bul
@@ -79,10 +74,15 @@ def get_recommendations_for_user(
             .order_by(Emotion.created_at.desc())
             .first()
         )
+        
         results.append(
             {
                 "movie_id": m.movie_id,
                 "series_title": m.series_title,
+                "genre": m.genre or "",
+                "imdb_rating": m.imdb_rating or 0.0,
+                "overview": m.overview or "",
+                "poster_link": getattr(m, 'poster_link', None),
                 "emotion_label": emotion.emotion_label if emotion else None,
             }
         )
@@ -97,21 +97,6 @@ def predict_emotion_for_movie(
 ) -> dict:
     """
     Film açıklamasından duygu tahmini yapar.
-    
-    İki yöntem:
-    1. movie_id varsa: Emotion tablosundan etiketi getirir
-    2. overview varsa: (İleride) ML modeliyle tahminde bulunur
-    
-    Args:
-        db: SQLAlchemy Session
-        movie_id: Opsiyonel film ID'si
-        overview: Opsiyonel film açıklaması
-    
-    Returns:
-        {
-            "movie_id": int | None,
-            "emotion_label": str
-        }
     """
     if movie_id is not None:
         # Emotion tablosundan tahmini duygu etiketini al
@@ -124,26 +109,22 @@ def predict_emotion_for_movie(
         label = emotion.emotion_label if emotion else "unknown"
         return {"movie_id": movie_id, "emotion_label": label}
 
-    # Eğer sadece overview verilmişse, ML modeliyle tahmin yap
-    # TODO: Gerçek ML modelini entegre et (AutoML / fine-tuned NLP)
-    # Şimdilik placeholder:
+    # Eğer sadece overview verilmişse, basit tahmin yap
     if overview:
-        # Basit heuristic (demo amaçlı)
         overview_lower = overview.lower()
-        if any(word in overview_lower for word in ["happy", "joy", "love", "cheerful"]):
+        
+        # Türkçe ve İngilizce kelimelerle kontrol
+        if any(word in overview_lower for word in ["happy", "joy", "love", "cheerful", "mutlu", "neşe", "aşk"]):
             predicted_label = "happy"
-        elif any(word in overview_lower for word in ["sad", "tragic", "death", "loss"]):
+        elif any(word in overview_lower for word in ["sad", "tragic", "death", "loss", "hüzünlü", "trajik", "ölüm"]):
             predicted_label = "sad"
-        elif any(word in overview_lower for word in ["dark", "horror", "scary"]):
-            predicted_label = "dark"
-        elif any(word in overview_lower for word in ["action", "fight", "battle", "exciting"]):
+        elif any(word in overview_lower for word in ["action", "fight", "battle", "exciting", "heyecanlı", "aksiyon", "savaş"]):
             predicted_label = "exciting"
+        elif any(word in overview_lower for word in ["relax", "peaceful", "calm", "rahat", "sakin", "huzurlu"]):
+            predicted_label = "relaxed"
         else:
             predicted_label = "dramatic"
         
         return {"movie_id": None, "emotion_label": predicted_label}
 
     return {"movie_id": None, "emotion_label": "unknown"}
-
-
-

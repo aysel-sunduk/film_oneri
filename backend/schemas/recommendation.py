@@ -3,8 +3,31 @@ Film önerileri ile ilgili Pydantic şemaları.
 """
 
 from typing import List, Optional
-
 from pydantic import BaseModel, Field
+
+
+class MoodRecommendationResponse(BaseModel):
+    """Ruh haline göre film önerisi"""
+    
+    movie_id: int = Field(..., description="Film ID'si")
+    series_title: str = Field(..., description="Film adı")
+    genre: str = Field(..., description="Tür")
+    imdb_rating: float = Field(..., description="IMDb puanı")
+    overview: str = Field(..., description="Film özeti")
+    poster_link: Optional[str] = Field(None, description="Poster URL")
+    
+    class Config:
+        from_attributes = True
+
+
+class PersonalStatsResponse(BaseModel):
+    """Kişisel istatistikler"""
+    
+    watched_count: int = Field(..., description="İzlenen film sayısı")
+    liked_count: int = Field(..., description="Beğenilen film sayısı")
+    
+    class Config:
+        from_attributes = True
 
 
 class RecommendationRequest(BaseModel):
@@ -21,7 +44,14 @@ class RecommendationItem(BaseModel):
 
     movie_id: int = Field(..., description="Film ID'si")
     series_title: str = Field(..., description="Film adı")
+    genre: str = Field(..., description="Film türü")
+    imdb_rating: float = Field(..., description="IMDb puanı")
+    overview: str = Field(..., description="Film özeti")
+    poster_link: Optional[str] = Field(None, description="Poster URL")
     emotion_label: Optional[str] = Field(None, description="İlişkili duygu etiketi")
+    
+    class Config:
+        from_attributes = True
 
 
 class RecommendationResponse(BaseModel):
@@ -43,6 +73,3 @@ class PredictEmotionResponse(BaseModel):
 
     movie_id: Optional[int] = Field(None, description="Film ID'si")
     emotion_label: str = Field(..., description="Tahmin edilen duygu")
-
-
-
