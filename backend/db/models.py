@@ -6,6 +6,7 @@ from sqlalchemy.orm import declarative_base, relationship
 Base = declarative_base()
 
 
+
 class Movie(Base):
     __tablename__ = "movies"
 
@@ -21,9 +22,12 @@ class Movie(Base):
     star2 = Column(String(255))
     star3 = Column(String(255))
     star4 = Column(String(255))
-    duration = Column(Integer)
-    language = Column(String(50))
-    country = Column(String(50))
+    # ✅ VERİTABANINDA OLAN KOLONLAR:
+    no_of_votes = Column(Integer)
+    poster_link = Column(Text)
+    certificate = Column(String(50))
+    runtime = Column(String(20))
+    gross = Column(String(50))
     created_at = Column(DateTime, default=datetime.utcnow)
 
     emotions = relationship("Emotion", back_populates="movie", cascade="all, delete-orphan")
@@ -78,5 +82,27 @@ class MovieTag(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     movie = relationship("Movie", back_populates="tags")
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String(255), unique=True, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"))
+    revoked = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime)
+
+    user = relationship("User")
+
+
+class RevokedToken(Base):
+    __tablename__ = "revoked_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String(1024), unique=True, nullable=False, index=True)
+    revoked_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime)
 
 

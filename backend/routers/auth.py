@@ -13,7 +13,12 @@ from backend.core.auth import (
     get_current_user,
     get_password_hash,
     verify_password,
+    oauth2_scheme,
+    create_refresh_token,
+    revoke_access_token_db,
+    revoke_all_refresh_tokens_for_user,
 )
+from fastapi.security import HTTPAuthorizationCredentials
 from backend.db.connection import get_db
 from backend.db.models import User
 from backend.schemas.auth import (
@@ -72,7 +77,9 @@ def login_user(body: LoginRequest, db: Session = Depends(get_db)):
 
     # JWT token oluştur
     token = create_access_token({"sub": str(user.user_id)})
-    return LoginResponse(success=True, token=token, user_id=user.user_id)
+    # refresh token oluştur ve DB'ye kaydet
+    refresh_token = create_refresh_token(db, user.user_id)
+    return LoginResponse(success=True, token=token, refresh_token=refresh_token, user_id=user.user_id)
 
 
 @router.get("/profile", response_model=ProfileResponse)
@@ -86,6 +93,27 @@ def get_profile(current_user: User = Depends(get_current_user)):
         preferred_genre=current_user.preferred_genre,
         created_at=current_user.created_at,
     )
+
+
+@router.post("/logout", response_model=dict)
+def logout_user(
+    token_cred: HTTPAuthorizationCredentials = Depends(oauth2_scheme),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Geliştirilmiş çıkış endpoint'i - token'ı geçersiz kılar"""
+    # extract token string from credentials
+    token = token_cred.credentials if token_cred else None
+    # Access token'ı revocation listesine ekle
+    revoke_access_token_db(db, token)
+    
+    # Kullanıcının tüm refresh token'larını iptal et
+    revoke_all_refresh_tokens_for_user(db, current_user.user_id)
+    
+    return {
+        "success": True, 
+        "message": "Çıkış başarılı. Tüm token'lar geçersiz kılındı."
+    }
 
 
 
