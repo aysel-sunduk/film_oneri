@@ -20,8 +20,57 @@ yarn-debug.log*
 
 # Environment files
 .env
+.env.local
+.env.*.local
+.env.production
+
+# ML Model files (çok büyük dosyalar - Git'e eklenmemeli)
+backend/ml/model/
+*.pkl
+*.ubj
+*.h5
+*.pt
+*.pth
+*.onnx
+*.joblib
+
+# Jupyter Notebook
+*.ipynb_checkpoints
+.ipynb_checkpoints/
+
+# Log files
+*.log
+logs/
+
+# Database files (opsiyonel - eğer büyükse)
+*.db
+*.sqlite
+*.sqlite3
+
+# Large data files
+*.csv
+!backend/ml/download_movies_dataset.py  # Script dosyasını hariç tut
 
 # Editor directories
 .vscode/
 .idea/
 .DS_Store
+*.swp
+*.swo
+*~
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Python specific
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup

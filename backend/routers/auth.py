@@ -1,24 +1,7 @@
-"""
-Kimlik doğrulama endpoint'leri.
-- POST /auth/register — Yeni kullanıcı kaydı
-- POST /auth/login — Kullanıcı girişi (JWT token döndürür)
-- GET /auth/profile — Mevcut kullanıcı profili
-"""
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from backend.core.auth import (
-    create_access_token,
-    get_current_user,
-    get_password_hash,
-    verify_password,
-    oauth2_scheme,
-    create_refresh_token,
-    revoke_access_token_db,
-    revoke_all_refresh_tokens_for_user,
-)
-from fastapi.security import HTTPAuthorizationCredentials
+from backend.core.auth import create_access_token, get_current_user, get_password_hash, verify_password
 from backend.db.connection import get_db
 from backend.db.models import User
 from backend.schemas.auth import (
@@ -32,10 +15,8 @@ from backend.schemas.auth import (
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
-@router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=RegisterResponse)
 def register_user(body: RegisterRequest, db: Session = Depends(get_db)):
-    """Yeni kullanıcı kaydı"""
-    # Email ve username benzersizliği kontrolü
     existing = (
         db.query(User)
         .filter((User.email == body.email) | (User.username == body.username))
@@ -47,14 +28,12 @@ def register_user(body: RegisterRequest, db: Session = Depends(get_db)):
             detail="Bu email veya kullanıcı adı zaten kullanılıyor",
         )
 
-    # Yeni kullanıcı oluştur
     user = User(
         username=body.username,
         email=body.email,
         password_hash=get_password_hash(body.password),
-        # mood/preferred_genre kaldırıldı — veritabanı alanları nullable olduğu için None bırakıyoruz
-        mood=None,
-        preferred_genre=None,
+        mood=body.mood,
+        preferred_genre=body.preferred_genre,
     )
     db.add(user)
     db.commit()
@@ -65,26 +44,19 @@ def register_user(body: RegisterRequest, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=LoginResponse)
 def login_user(body: LoginRequest, db: Session = Depends(get_db)):
-    """Kullanıcı girişi ve JWT token üretimi"""
     user = db.query(User).filter(User.email == body.email).first()
-
-    # Email ve şifre doğrulama
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email veya şifre hatalı",
         )
 
-    # JWT token oluştur
     token = create_access_token({"sub": str(user.user_id)})
-    # refresh token oluştur ve DB'ye kaydet
-    refresh_token = create_refresh_token(db, user.user_id)
-    return LoginResponse(success=True, token=token, refresh_token=refresh_token, user_id=user.user_id)
+    return LoginResponse(success=True, token=token, user_id=user.user_id)
 
 
 @router.get("/profile", response_model=ProfileResponse)
 def get_profile(current_user: User = Depends(get_current_user)):
-    """Mevcut kullanıcı profili (JWT token gerekli)"""
     return ProfileResponse(
         user_id=current_user.user_id,
         username=current_user.username,
@@ -93,27 +65,5 @@ def get_profile(current_user: User = Depends(get_current_user)):
         preferred_genre=current_user.preferred_genre,
         created_at=current_user.created_at,
     )
-
-
-@router.post("/logout", response_model=dict)
-def logout_user(
-    token_cred: HTTPAuthorizationCredentials = Depends(oauth2_scheme),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Geliştirilmiş çıkış endpoint'i - token'ı geçersiz kılar"""
-    # extract token string from credentials
-    token = token_cred.credentials if token_cred else None
-    # Access token'ı revocation listesine ekle
-    revoke_access_token_db(db, token)
-    
-    # Kullanıcının tüm refresh token'larını iptal et
-    revoke_all_refresh_tokens_for_user(db, current_user.user_id)
-    
-    return {
-        "success": True, 
-        "message": "Çıkış başarılı. Tüm token'lar geçersiz kılındı."
-    }
-
 
 

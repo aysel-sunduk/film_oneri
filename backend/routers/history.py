@@ -1,96 +1,237 @@
-"""
-Kullanıcı izleme geçmişi endpoint'leri.
-- POST /history — Yeni geçmiş kaydı (film izleme, beğenme, vb.)
-- GET /history — Kullanıcının geçmişini listele
-"""
-
-from datetime import datetime  # ✅ BUNU EKLE!
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
+from typing import Optional
 
 from backend.core.auth import get_current_user
 from backend.db.connection import get_db
 from backend.db.models import Movie, User, UserHistory
 from backend.schemas.history import (
-    HistoryCreateRequest,
+    HistoryCreateRequest, 
+    HistoryItemResponse,
     HistoryListResponse,
+    HistoryByInteractionResponse
 )
 
 router = APIRouter(prefix="/history", tags=["History"])
 
-@router.post("", response_model=dict, status_code=status.HTTP_201_CREATED)
+
+@router.post("", response_model=dict)
 def create_history_item(
     body: HistoryCreateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    Kullanıcı geçmiş kaydı oluştur veya güncelle
+    Kullanıcı geçmişine yeni bir kayıt ekler (izlendi, beğenildi, tıklandı).
     """
-    # Film var mı kontrol et
-    movie_exists = db.query(Movie.movie_id).filter(Movie.movie_id == body.movie_id).first()
-    if not movie_exists:
+    if body.user_id != current_user.user_id:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Film (ID: {body.movie_id}) bulunamadı"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sadece kendi geçmişinizi güncelleyebilirsiniz",
         )
 
-    # Aynı kayıt var mı kontrol et (user + movie + interaction aynıysa)
-    existing_history = db.query(UserHistory).filter(
-        UserHistory.user_id == current_user.user_id,
+    movie = db.query(Movie).filter(Movie.movie_id == body.movie_id).first()
+    if not movie:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Film bulunamadı")
+
+    # Aynı film için aynı interaction zaten varsa güncelle, yoksa yeni ekle
+    existing = db.query(UserHistory).filter(
+        UserHistory.user_id == body.user_id,
         UserHistory.movie_id == body.movie_id,
         UserHistory.interaction == body.interaction
     ).first()
-
-    if existing_history:
-        # ✅ VARSA: Tarihi güncelle (yeniden izlendi/beğenildi)
-        existing_history.watch_date = datetime.utcnow()
+    
+    if existing:
+        # Sadece watch_date'i güncelle
+        from datetime import datetime
+        existing.watch_date = datetime.utcnow()
         db.commit()
-        db.refresh(existing_history)
-        return {
-            "success": True, 
-            "history_id": existing_history.history_id, 
-            "action": "updated",
-            "message": "Mevcut kayıt güncellendi"
-        }
-    else:
-        # ✅ YOKSA: Yeni kayıt oluştur
-        history = UserHistory(
-            user_id=current_user.user_id,
-            movie_id=body.movie_id,
-            interaction=body.interaction,
+        return {"success": True, "message": "Geçmiş kaydı güncellendi"}
+    
+    history = UserHistory(
+        user_id=body.user_id,
+        movie_id=body.movie_id,
+        interaction=body.interaction,
+    )
+    db.add(history)
+    db.commit()
+    return {"success": True, "message": "Geçmiş kaydı oluşturuldu"}
+
+
+@router.get("/me", response_model=HistoryListResponse)
+def get_my_history(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    limit: Optional[int] = Query(default=100, ge=1, le=500),
+    offset: Optional[int] = Query(default=0, ge=0),
+):
+    """
+    Giriş yapan kullanıcının tüm geçmişini getirir (film bilgileri ile birlikte).
+    """
+    # History kayıtlarını film bilgileri ile birlikte çek
+    items = (
+        db.query(UserHistory, Movie)
+        .join(Movie, UserHistory.movie_id == Movie.movie_id)
+        .filter(UserHistory.user_id == current_user.user_id)
+        .order_by(UserHistory.watch_date.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    
+    # Response formatına dönüştür
+    history_items = []
+    for history, movie in items:
+        history_items.append(HistoryItemResponse(
+            history_id=history.history_id,
+            movie_id=history.movie_id,
+            interaction=history.interaction,
+            watch_date=history.watch_date,
+            movie=movie  # Movie objesi otomatik olarak MovieInfo'ya dönüşecek
+        ))
+    
+    # Toplam sayı
+    total = db.query(UserHistory).filter(
+        UserHistory.user_id == current_user.user_id
+    ).count()
+    
+    return HistoryListResponse(
+        total=total,
+        items=history_items
+    )
+
+
+@router.get("/me/{interaction}", response_model=HistoryByInteractionResponse)
+def get_my_history_by_interaction(
+    interaction: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    limit: Optional[int] = Query(default=100, ge=1, le=500),
+    offset: Optional[int] = Query(default=0, ge=0),
+):
+    """
+    Giriş yapan kullanıcının belirli bir interaction tipine göre geçmişini getirir.
+    Örnek: /history/me/viewed, /history/me/liked, /history/me/clicked
+    """
+    # Geçerli interaction tiplerini kontrol et
+    valid_interactions = ["viewed", "liked", "clicked"]
+    if interaction not in valid_interactions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Geçersiz interaction tipi. Geçerli tipler: {', '.join(valid_interactions)}"
         )
-        db.add(history)
-        db.commit()
-        db.refresh(history)
-        return {
-            "success": True, 
-            "history_id": history.history_id, 
-            "action": "created",
-            "message": "Yeni kayıt oluşturuldu"
-        }
+    
+    # History kayıtlarını film bilgileri ile birlikte çek
+    items = (
+        db.query(UserHistory, Movie)
+        .join(Movie, UserHistory.movie_id == Movie.movie_id)
+        .filter(
+            UserHistory.user_id == current_user.user_id,
+            UserHistory.interaction == interaction
+        )
+        .order_by(UserHistory.watch_date.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    
+    # Response formatına dönüştür
+    history_items = []
+    for history, movie in items:
+        history_items.append(HistoryItemResponse(
+            history_id=history.history_id,
+            movie_id=history.movie_id,
+            interaction=history.interaction,
+            watch_date=history.watch_date,
+            movie=movie
+        ))
+    
+    # Toplam sayı
+    total = db.query(UserHistory).filter(
+        UserHistory.user_id == current_user.user_id,
+        UserHistory.interaction == interaction
+    ).count()
+    
+    return HistoryByInteractionResponse(
+        interaction=interaction,
+        total=total,
+        items=history_items
+    )
 
-@router.get("", response_model=HistoryListResponse)
+
+@router.get("/{user_id}", response_model=HistoryListResponse)
 def get_user_history(
-    limit: int = Query(default=20, ge=1, le=100, description="Kaç kayıt gösterilsin"),
-    page: int = Query(default=1, ge=1, description="Sayfa numarası"),
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    limit: Optional[int] = Query(default=100, ge=1, le=500),
+    offset: Optional[int] = Query(default=0, ge=0),
+):
+    """
+    Belirli bir kullanıcının geçmişini getirir (sadece kendi geçmişinizi görüntüleyebilirsiniz).
+    """
+    if user_id != current_user.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sadece kendi geçmişinizi görüntüleyebilirsiniz",
+        )
+
+    # History kayıtlarını film bilgileri ile birlikte çek
+    items = (
+        db.query(UserHistory, Movie)
+        .join(Movie, UserHistory.movie_id == Movie.movie_id)
+        .filter(UserHistory.user_id == user_id)
+        .order_by(UserHistory.watch_date.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    
+    # Response formatına dönüştür
+    history_items = []
+    for history, movie in items:
+        history_items.append(HistoryItemResponse(
+            history_id=history.history_id,
+            movie_id=history.movie_id,
+            interaction=history.interaction,
+            watch_date=history.watch_date,
+            movie=movie
+        ))
+    
+    # Toplam sayı
+    total = db.query(UserHistory).filter(
+        UserHistory.user_id == user_id
+    ).count()
+    
+    return HistoryListResponse(
+        total=total,
+        items=history_items
+    )
+
+
+@router.delete("/me/{history_id}", response_model=dict)
+def delete_history_item(
+    history_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    Mevcut kullanıcının izleme geçmişini getir (sayfalandırılmış)
+    Giriş yapan kullanıcının belirli bir geçmiş kaydını siler.
     """
-    query = db.query(UserHistory).filter(UserHistory.user_id == current_user.user_id)
+    history = db.query(UserHistory).filter(
+        UserHistory.history_id == history_id,
+        UserHistory.user_id == current_user.user_id
+    ).first()
+    
+    if not history:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Geçmiş kaydı bulunamadı"
+        )
+    
+    db.delete(history)
+    db.commit()
+    
+    return {"success": True, "message": "Geçmiş kaydı silindi"}
 
-    # Toplam sayı
-    total = query.count()
 
-    # Sayfalandırma (en yeni ilk)
-    items = (
-        query.order_by(UserHistory.watch_date.desc())
-        .offset((page - 1) * limit)
-        .limit(limit)
-        .all()
-    )
-
-    return HistoryListResponse(total=total, items=items)

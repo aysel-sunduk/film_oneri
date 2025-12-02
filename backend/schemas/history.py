@@ -1,40 +1,52 @@
-"""
-Kullanıcı izleme geçmişi ile ilgili Pydantic şemaları.
-"""
-
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class HistoryCreateRequest(BaseModel):
-    """İzleme geçmişi oluşturma isteği"""
+    user_id: int
+    movie_id: int
+    interaction: str  # viewed, liked, clicked
 
-    movie_id: int = Field(..., description="Film ID'si")
-    interaction: str = Field(
-        ...,
-        description="İnteraksiyon türü (watched, rated, liked, reviewed vb.)",
-        min_length=2,
-        max_length=50
-    )
+
+class MovieInfo(BaseModel):
+    """Film bilgileri (history response için)"""
+    movie_id: int
+    title: str
+    overview: Optional[str] = None
+    release_date: Optional[str] = None
+    vote_average: Optional[float] = None
+    popularity: Optional[float] = None
+    genre: Optional[str] = None
+    poster_url: Optional[str] = None
+    
+    class Config:
+        orm_mode = True
 
 
 class HistoryItemResponse(BaseModel):
-    """İzleme geçmişi öğesi yanıtı"""
-
-    history_id: int = Field(..., description="Geçmiş ID'si")
-    user_id: int = Field(..., description="Kullanıcı ID'si")
-    movie_id: int = Field(..., description="Film ID'si")
-    interaction: str = Field(..., description="İnteraksiyon türü")
-    watch_date: datetime = Field(..., description="İzleme tarihi")
+    """History item ile birlikte film bilgileri"""
+    history_id: int
+    movie_id: int
+    interaction: str  # viewed, liked, clicked
+    watch_date: datetime
+    movie: MovieInfo  # Film bilgileri
 
     class Config:
-        from_attributes = True
+        orm_mode = True
 
 
 class HistoryListResponse(BaseModel):
-    """Kullanıcı geçmiş listesi yanıtı"""
+    """History listesi response"""
+    total: int
+    items: List[HistoryItemResponse]
 
-    total: int = Field(..., description="Toplam geçmiş sayısı")
-    items: List[HistoryItemResponse] = Field(..., description="Geçmiş öğeleri")
+
+class HistoryByInteractionResponse(BaseModel):
+    """Interaction tipine göre filtrelenmiş history"""
+    interaction: str
+    total: int
+    items: List[HistoryItemResponse]
+
+

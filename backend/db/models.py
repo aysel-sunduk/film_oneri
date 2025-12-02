@@ -1,33 +1,29 @@
-from datetime import datetime
+from datetime import datetime, date
 
-from sqlalchemy import Column, Integer, String, Text, Float, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Text, Float, ForeignKey, DateTime, Date
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
 
-
 class Movie(Base):
     __tablename__ = "movies"
 
+    # Primary key
     movie_id = Column(Integer, primary_key=True, index=True)
-    series_title = Column(String(255), nullable=False)
-    released_year = Column(String(10))
-    genre = Column(String(255))
-    imdb_rating = Column(Float)
-    meta_score = Column(Integer)
-    overview = Column(Text, nullable=False)
-    director = Column(String(255))
-    star1 = Column(String(255))
-    star2 = Column(String(255))
-    star3 = Column(String(255))
-    star4 = Column(String(255))
-    # ✅ VERİTABANINDA OLAN KOLONLAR:
-    no_of_votes = Column(Integer)
-    poster_link = Column(Text)
-    certificate = Column(String(50))
-    runtime = Column(String(20))
-    gross = Column(String(50))
+    
+    # Dataset kolonları (tam eşleşme)
+    title = Column(String(255), nullable=False, index=True)  # Title
+    release_date = Column(Date, nullable=True)   # Release_Date (DATE olarak da saklanabilir)
+    overview = Column(Text, nullable=False)  # Overview
+    popularity = Column(Float, index=True)  # Popularity
+    vote_count = Column(Integer, index=True)  # Vote_Count
+    vote_average = Column(Float, index=True)  # Vote_Average
+    original_language = Column(String(10), default='en', index=True)  # Original_Language
+    genre = Column(String(255), index=True)  # Genre
+    poster_url = Column(Text)  # Poster_Url
+    
+    # Sistem kolonları
     created_at = Column(DateTime, default=datetime.utcnow)
 
     emotions = relationship("Emotion", back_populates="movie", cascade="all, delete-orphan")
@@ -82,27 +78,5 @@ class MovieTag(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     movie = relationship("Movie", back_populates="tags")
-
-
-class RefreshToken(Base):
-    __tablename__ = "refresh_tokens"
-
-    id = Column(Integer, primary_key=True, index=True)
-    token = Column(String(255), unique=True, nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"))
-    revoked = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    expires_at = Column(DateTime)
-
-    user = relationship("User")
-
-
-class RevokedToken(Base):
-    __tablename__ = "revoked_tokens"
-
-    id = Column(Integer, primary_key=True, index=True)
-    token = Column(String(1024), unique=True, nullable=False, index=True)
-    revoked_at = Column(DateTime, default=datetime.utcnow)
-    expires_at = Column(DateTime)
 
 
