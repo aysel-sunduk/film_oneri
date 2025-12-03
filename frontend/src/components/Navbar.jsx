@@ -7,41 +7,46 @@ import { Link, useNavigate } from 'react-router-dom';
 const Navbar = () => {
   const navigate = useNavigate();
 
-  // 🔥 TOKEN'A GÖRE GİRİŞ DURUMU
-  const [isLoggedIn, setIsLoggedIn] = useState(() => {
-    return !!localStorage.getItem("token");
-  });
+  // Login durumu
+  const [isLoggedIn, setIsLoggedIn] = useState(() => !!localStorage.getItem("token"));
 
-  // Login'den dönünce Navbar güncellensin
   useEffect(() => {
-    const checkLogin = () => {
-      setIsLoggedIn(!!localStorage.getItem("token"));
-    };
+    const checkLogin = () => setIsLoggedIn(!!localStorage.getItem("token"));
     window.addEventListener("storage", checkLogin);
-    return () => window.removeEventListener("storage", checkLogin);
+    window.addEventListener("loginStatusChanged", checkLogin);
+    return () => {
+      window.removeEventListener("storage", checkLogin);
+      window.removeEventListener("loginStatusChanged", checkLogin);
+    };
   }, []);
 
-  // Mobil menü kontrolü
+  // Mobil menü
   const [anchorElNav, setAnchorElNav] = useState(null);
+  const handleOpenNavMenu = (event) => setAnchorElNav(event.currentTarget);
+  const handleCloseNavMenu = () => setAnchorElNav(null);
 
-  const handleOpenNavMenu = (event) => {
-    setAnchorElNav(event.currentTarget);
+  // Logout
+  const handleLogout = async () => {
+    const token = localStorage.getItem("token");
+    if (token) {
+      try {
+        await fetch("http://localhost:8000/auth/logout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        });
+      } catch (error) {
+        console.error(error);
+      }
+    }
+    localStorage.removeItem("token");
+    localStorage.removeItem("refresh_token");
+    setIsLoggedIn(false);
+    navigate("/login");
   };
 
-  const handleCloseNavMenu = () => {
-    setAnchorElNav(null);
-  };
-
-  // Çıkış butonu
-  const handleLogout = () => {
-  localStorage.removeItem("token");
-  window.location.href = "/login";
-};
-
-
-  // Gösterilecek menü seçenekleri
+  // Menü seçenekleri (sadece girişli kullanıcı için)
   const navItems = [
-    { label: 'Mood Seçimi', path: '/' },
+    { label: 'Mood Seçimi', path: '/mood' },
     { label: 'Önerilenler', path: '/movies' },
     { label: 'Geçmişim', path: '/history' },
   ];
@@ -49,7 +54,7 @@ const Navbar = () => {
   return (
     <AppBar position="sticky" sx={{ bgcolor: 'background.paper', boxShadow: 3 }}>
       <Toolbar sx={{ justifyContent: 'space-between', minHeight: { xs: 64, md: 70 } }}>
-        
+
         {/* Sol Logo */}
         <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: { xs: 1, md: 0 } }}>
           {/* Masaüstü */}
@@ -58,7 +63,7 @@ const Navbar = () => {
             <Typography
               variant="h5"
               component={Link}
-              to="/"
+              to="/"  // Dashboard'a yönlendir
               sx={{
                 fontWeight: 700,
                 color: 'text.primary',
@@ -70,78 +75,36 @@ const Navbar = () => {
             </Typography>
           </Box>
 
-          {/* Mobil Menü Butonu */}
+          {/* Mobil */}
           <Box sx={{ display: { xs: 'flex', md: 'none' }, alignItems: 'center', flexGrow: 1 }}>
-            <IconButton
-              size="large"
-              aria-label="app menu"
-              onClick={handleOpenNavMenu}
-              color="inherit"
-              sx={{ mr: 1 }}
-            >
+            <IconButton size="large" aria-label="app menu" onClick={handleOpenNavMenu} color="inherit" sx={{ mr: 1 }}>
               <MenuIcon />
             </IconButton>
-
             <MovieIcon sx={{ fontSize: 28, color: 'primary.main', mr: 1 }} />
             <Typography
               variant="h6"
               component={Link}
-              to="/"
-              sx={{
-                fontWeight: 700,
-                color: 'text.primary',
-                textDecoration: 'none',
-                fontSize: '1.2rem',
-                '&:hover': { color: 'primary.main' }
-              }}
+              to="/"  // Dashboard'a yönlendir
+              sx={{ fontWeight: 700, color: 'text.primary', textDecoration: 'none', fontSize: '1.2rem', '&:hover': { color: 'primary.main' } }}
             >
               MOVIE MOOD
             </Typography>
           </Box>
         </Box>
 
-        {/* Orta Menü (Masaüstü) */}
-        <Box sx={{ 
-          display: { xs: 'none', md: 'flex' },
-          justifyContent: 'center',
-          flexGrow: 1,
-          gap: 1
-        }}>
-          {isLoggedIn && navItems.map((item) => (
-            <Button
-              key={item.label}
-              component={Link}
-              to={item.path}
-              sx={{
-                color: 'text.primary',
-                fontWeight: 500,
-                px: 2,
-                '&:hover': {
-                  bgcolor: 'primary.light',
-                  color: 'white'
-                }
-              }}
-            >
+        {/* Orta Menü */}
+        <Box sx={{ display: { xs: 'none', md: 'flex' }, justifyContent: 'center', flexGrow: 1, gap: 1 }}>
+          {isLoggedIn && navItems.map(item => (
+            <Button key={item.label} component={Link} to={item.path} sx={{ color: 'text.primary', fontWeight: 500, px: 2, '&:hover': { bgcolor: 'primary.light', color: 'white' } }}>
               {item.label}
             </Button>
           ))}
         </Box>
 
-        {/* Sağ Menü (Login/Logout) */}
+        {/* Sağ Menü */}
         <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center' }}>
           {isLoggedIn ? (
-            <Button 
-              onClick={handleLogout}
-              variant="outlined"
-              sx={{
-                borderColor: 'secondary.main',
-                color: 'secondary.main',
-                '&:hover': {
-                  bgcolor: 'secondary.main',
-                  color: 'white'
-                }
-              }}
-            >
+            <Button onClick={handleLogout} variant="outlined" sx={{ borderColor: 'secondary.main', color: 'secondary.main', '&:hover': { bgcolor: 'secondary.main', color: 'white' } }}>
               Çıkış Yap
             </Button>
           ) : (
@@ -153,27 +116,13 @@ const Navbar = () => {
         </Box>
 
         {/* Mobil Menü */}
-        <Menu
-          id="menu-appbar"
-          anchorEl={anchorElNav}
-          open={Boolean(anchorElNav)}
-          onClose={handleCloseNavMenu}
-          sx={{ display: { xs: 'block', md: 'none' } }}
-        >
-          {isLoggedIn && navItems.map((item) => (
-            <MenuItem
-              key={item.label}
-              onClick={handleCloseNavMenu}
-              component={Link}
-              to={item.path}
-            >
+        <Menu anchorEl={anchorElNav} open={Boolean(anchorElNav)} onClose={handleCloseNavMenu} sx={{ display: { xs: 'block', md: 'none' } }}>
+          {isLoggedIn && navItems.map(item => (
+            <MenuItem key={item.label} onClick={handleCloseNavMenu} component={Link} to={item.path}>
               <Typography>{item.label}</Typography>
             </MenuItem>
           ))}
-
-          <MenuItem
-            onClick={isLoggedIn ? handleLogout : () => navigate('/login')}
-          >
+          <MenuItem onClick={isLoggedIn ? handleLogout : () => navigate('/login')}>
             <Typography>{isLoggedIn ? 'Çıkış Yap' : 'Giriş Yap'}</Typography>
           </MenuItem>
         </Menu>

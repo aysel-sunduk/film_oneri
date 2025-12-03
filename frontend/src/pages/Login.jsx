@@ -34,7 +34,9 @@ const LoginPage = () => {
       setOpenSnackbar(true);
 
       localStorage.setItem("token", response.data.token);
-      window.location.href = "/";
+      window.dispatchEvent(new Event("loginStatusChanged"));
+
+      navigate("/");
 
     } catch (error) {
       console.error(error.response?.data?.detail || error.message);

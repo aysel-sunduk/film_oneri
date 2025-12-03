@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 import {
     FlashOn as ExcitementIcon,
     SentimentVerySatisfied as HappyIcon,
@@ -6,6 +7,17 @@ import {
     SentimentDissatisfied as SadIcon
 } from '@mui/icons-material';
 import { Box, Container, Grid, Paper, Typography } from '@mui/material';
+=======
+import React from 'react';
+import { Container, Typography, Box, Grid, Button, Paper } from '@mui/material';
+import { 
+  SentimentVerySatisfied as HappyIcon, 
+  SentimentDissatisfied as SadIcon, 
+  FlashOn as ExcitementIcon,
+  LocalCafe as RelaxIcon,
+  SentimentNeutral as NeutralIcon
+} from '@mui/icons-material';
+>>>>>>> Stashed changes
 
 // Her ruh halini temsil eden bir obje listesi
 const moods = [

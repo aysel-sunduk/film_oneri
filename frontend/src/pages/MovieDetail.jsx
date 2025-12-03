@@ -1,35 +1,100 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Container, Typography, Box, Grid, Card, CardMedia, Chip, Button, Rating, Divider, Paper, Stack } from '@mui/material';
 import { Theaters as WatchIcon, Favorite as LikeIcon, Star as StarIcon } from '@mui/icons-material';
-import { mockMovies } from '../data/mockData';
 
 const MovieDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const movie = mockMovies.find(m => m.id === parseInt(id));
 
+  const [movie, setMovie] = useState(null);
   const [isWatched, setIsWatched] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
+
+  // Backend'den film verisini al
+  useEffect(() => {
+    const fetchMovie = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        if (!token) return;
+
+        const res = await fetch(`http://localhost:8000/movies/${id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (!res.ok) throw new Error("Film yüklenemedi");
+
+        const data = await res.json();
+        setMovie(data);
+
+        // Backend history varsa durumu ayarla
+        const historyRes = await fetch("http://localhost:8000/history?limit=100&page=1", {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const historyData = await historyRes.json();
+        const userHistory = historyData.items.find(item => item.movie.movie_id === data.movie_id);
+        if (userHistory) {
+          setIsWatched(userHistory.interaction === "watched" || userHistory.interaction === "liked");
+          setIsLiked(userHistory.interaction === "liked");
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    fetchMovie();
+  }, [id]);
 
   if (!movie) {
     return (
       <Container sx={{ py: 10, textAlign: 'center' }}>
         <Typography variant="h4" color="error">Film Bulunamadı!</Typography>
-        <Button variant="contained" onClick={() => navigate('/movies')} sx={{ mt: 2 }}>
-          Geri Dön
-        </Button>
+        <Button variant="contained" onClick={() => navigate('/movies')} sx={{ mt: 2 }}>Geri Dön</Button>
       </Container>
     );
   }
 
-  const handleWatchToggle = () => setIsWatched(!isWatched);
-  const handleLikeToggle = () => setIsLiked(!isLiked);
+  // History POST helper
+  const postHistory = async (interactionType) => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    try {
+      const res = await fetch("http://localhost:8000/history", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          movie_id: movie.movie_id,
+          interaction: interactionType
+        }),
+      });
+
+      if (!res.ok) throw new Error("History kaydedilemedi");
+
+      const data = await res.json();
+      console.log("History response:", data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleWatchToggle = async () => {
+    const newState = !isWatched;
+    setIsWatched(newState);
+    if (newState) await postHistory("watched");
+  };
+
+  const handleLikeToggle = async () => {
+    const newState = !isLiked;
+    setIsLiked(newState);
+    if (newState) await postHistory("liked");
+  };
 
   return (
     <Box sx={{ bgcolor: 'background.default', minHeight: '100vh' }}>
-      
-      {/* Backdrop */}
       <Box
         sx={{
           height: { xs: 250, md: 350 },
@@ -53,94 +118,29 @@ const MovieDetailPage = () => {
 
       <Container sx={{ mt: -6, pb: 6 }}>
         <Grid container spacing={4}>
-          {/* Sol Sütun */}
           <Grid item xs={12} md={4}>
             <Card sx={{ borderRadius: 2, overflow: 'hidden' }}>
-              <CardMedia
-                component="img"
-                image={movie.posterUrl}
-                alt={movie.title}
-                sx={{ height: { xs: 400, md: 500 }, objectFit: 'cover' }}
-              />
+              <CardMedia component="img" image={movie.posterUrl} alt={movie.title} sx={{ height: { xs: 400, md: 500 }, objectFit: 'cover' }} />
             </Card>
 
             <Paper elevation={3} sx={{ p: 2, mt: 3 }}>
               <Stack spacing={1}>
-                <Button
-                  variant={isWatched ? "contained" : "outlined"}
-                  startIcon={<WatchIcon />}
-                  fullWidth
-                  onClick={handleWatchToggle}
-                  color="primary"
-                >
+                <Button variant={isWatched ? "contained" : "outlined"} startIcon={<WatchIcon />} fullWidth onClick={handleWatchToggle} color="primary">
                   {isWatched ? "İzlendi" : "İşaretle"}
                 </Button>
 
-                <Button
-                  variant={isLiked ? "contained" : "outlined"}
-                  startIcon={<LikeIcon />}
-                  fullWidth
-                  onClick={handleLikeToggle}
-                  color="secondary"
-                >
+                <Button variant={isLiked ? "contained" : "outlined"} startIcon={<LikeIcon />} fullWidth onClick={handleLikeToggle} color="secondary">
                   {isLiked ? "Beğeni Kaldır" : "Beğen"}
                 </Button>
               </Stack>
             </Paper>
           </Grid>
 
-          {/* Sağ Sütun */}
           <Grid item xs={12} md={8}>
             <Paper elevation={3} sx={{ p: { xs: 2, md: 4 }, borderRadius: 2 }}>
-              
-              {/* Rating ve Genre */}
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
-                <Rating
-                  value={movie.rating / 2}
-                  readOnly
-                  precision={0.1}
-                  size="large"
-                  emptyIcon={<StarIcon style={{ opacity: 0.55 }} fontSize="inherit" />}
-                />
-                <Typography variant="h6" sx={{ ml: 1, fontWeight: 'bold', color: 'primary.light' }}>
-                  {movie.rating} / 10
-                </Typography>
-                <Divider orientation="vertical" flexItem sx={{ mx: 2 }} />
-                {movie.genre.map(tag => (
-                  <Chip key={tag} label={tag} color="secondary" size="small" />
-                ))}
-              </Box>
-
-              <Divider sx={{ mb: 2 }} />
-
-              {/* Özet */}
+              {/* Film detayları buraya */}
               <Typography variant="h6" gutterBottom>Özet</Typography>
               <Typography variant="body2" paragraph>{movie.summary}</Typography>
-
-              <Divider sx={{ my: 2 }} />
-
-              {/* Yönetmen ve Yıl */}
-              <Grid container spacing={2}>
-                <Grid item xs={6}>
-                  <Typography variant="subtitle1" color="primary">Yönetmen</Typography>
-                  <Typography variant="body2">{movie.director}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="subtitle1" color="primary">Çıkış Yılı</Typography>
-                  <Typography variant="body2">{movie.releaseYear}</Typography>
-                </Grid>
-              </Grid>
-
-              <Divider sx={{ my: 2 }} />
-
-              {/* Oyuncular */}
-              <Typography variant="subtitle1" color="primary" gutterBottom>Başlıca Oyuncular</Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {movie.cast.map(actor => (
-                  <Chip key={actor} label={actor} variant="outlined" size="small" />
-                ))}
-              </Box>
-
             </Paper>
           </Grid>
         </Grid>
