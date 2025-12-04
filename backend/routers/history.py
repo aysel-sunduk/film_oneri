@@ -47,7 +47,7 @@ def create_history_item(
         existing.watch_date = datetime.utcnow()
         db.commit()
         return {"success": True, "message": "Geçmiş kaydı güncellendi"}
-    
+
     history = UserHistory(
         user_id=body.user_id,
         movie_id=body.movie_id,

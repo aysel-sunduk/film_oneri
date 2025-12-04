@@ -90,13 +90,13 @@ def delete_movie(
     db.commit()
     return {"success": True}
 
-
+"""
 @router.delete("/reset", response_model=dict)
 def reset_movies(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Tüm filmleri siler (DİKKAT: Bu işlem geri alınamaz!)"""
+    Tüm filmleri siler (DİKKAT: Bu işlem geri alınamaz!)
     # Güvenlik için: Sadece admin kullanıcılar bu işlemi yapabilir
     # Şimdilik tüm authenticated kullanıcılar yapabilir, istersen role kontrolü ekleyebilirsin
     
@@ -109,4 +109,4 @@ def reset_movies(
         "warning": "Bu işlem geri alınamaz!"
     }
 
-
+"""
