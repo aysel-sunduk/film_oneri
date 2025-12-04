@@ -1,46 +1,62 @@
-import React, { useEffect, useState } from "react";
-import axios from "axios";
+import React, { useState, useEffect } from 'react';
+import { Container, Typography, Box, Tabs, Tab, Grid } from '@mui/material';
+import MovieCard from '../components/MovieCard';
 
-const UserActivityPage = () => {
-  const [history, setHistory] = useState([]);
-  const [liked, setLiked] = useState([]);
+const TabPanel = (props) => {
+  const { children, value, index, ...other } = props;
+  return (
+    <div
+      role="tabpanel"
+      hidden={value !== index}
+      id={`simple-tabpanel-${index}`}
+      aria-labelledby={`simple-tab-${index}`}
+      {...other}
+    >
+      {value === index && <Box sx={{ p: 3 }}>{children}</Box>}
+    </div>
+  );
+};
+
+const UserHistoryPage = () => {
+  const [value, setValue] = useState(0); // Tab seçimi
+  const [watchedMovies, setWatchedMovies] = useState([]);
+  const [likedMovies, setLikedMovies] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const [activeTab, setActiveTab] = useState("history");
+  const handleChange = (event, newValue) => setValue(newValue);
 
-  const token = localStorage.getItem("token");
-
-  // -----------------------
-  // HISTORY GETIRME
-  // -----------------------
   useEffect(() => {
     const fetchHistory = async () => {
+      const token = localStorage.getItem("token");
+      if (!token) return;
+
       try {
-        const res = await axios.get("http://localhost:8000/history?limit=100&page=1", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+        // Backend'deki doğru endpoint
+        const res = await fetch("http://localhost:8000/history/me?limit=100&offset=0", {
+          headers: { Authorization: `Bearer ${token}` }
         });
 
-        console.log("History gelen:", res.data);
+        if (!res.ok) throw new Error("Geçmiş yüklenemedi");
 
-        const items = res.data.items || [];
+        const data = await res.json();
 
-        // İzlenenler
-        const watchedList = items
-          .filter((i) => i.interaction === "watched")
-          .map((i) => i);
+        // Backend interaction tipleri:
+        // viewed → izlenen
+        // liked → beğenilen
+        setWatchedMovies(
+          data.items
+            .filter(item => item.interaction === "viewed")
+            .map(item => item.movie)
+        );
 
-        // Beğenilenler
-        const likedList = items
-          .filter((i) => i.interaction === "liked")
-          .map((i) => i);
-
-        setHistory(watchedList);
-        setLiked(likedList);
+        setLikedMovies(
+          data.items
+            .filter(item => item.interaction === "liked")
+            .map(item => item.movie)
+        );
 
       } catch (err) {
-        console.log("History fetch error:", err);
+        console.error(err);
       } finally {
         setLoading(false);
       }
@@ -50,91 +66,57 @@ const UserActivityPage = () => {
   }, []);
 
   return (
-    <div style={{ padding: "20px" }}>
-      <h1>Kullanıcı Aktivitesi</h1>
+    <Container component="main" sx={{ py: 6, minHeight: '100vh' }}>
+      <Typography variant="h3" component="h1" gutterBottom color="primary" sx={{ textAlign: 'center', mb: 4 }}>
+        Kullanıcı Geçmişi
+      </Typography>
 
-      {/* TAB MENU */}
-      <div style={{ display: "flex", gap: "20px", marginBottom: "20px" }}>
-        <button
-          onClick={() => setActiveTab("history")}
-          style={{
-            padding: "10px",
-            background: activeTab === "history" ? "#333" : "#eee",
-            color: activeTab === "history" ? "white" : "black",
-            borderRadius: "8px",
-            border: "none",
-            cursor: "pointer",
-          }}
-        >
-          İzlenen Filmler
-        </button>
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+        <Tabs value={value} onChange={handleChange} centered indicatorColor="secondary" textColor="secondary">
+          <Tab label={`İzlenenler (${watchedMovies.length})`} />
+          <Tab label={`Beğenilenler (${likedMovies.length})`} />
+        </Tabs>
+      </Box>
 
-        <button
-          onClick={() => setActiveTab("liked")}
-          style={{
-            padding: "10px",
-            background: activeTab === "liked" ? "#333" : "#eee",
-            color: activeTab === "liked" ? "white" : "black",
-            borderRadius: "8px",
-            border: "none",
-            cursor: "pointer",
-          }}
-        >
-          Beğenilen Filmler
-        </button>
-      </div>
+      {/* İZLENENLER */}
+      <TabPanel value={value} index={0}>
+        {loading ? (
+          <Typography align="center">Yükleniyor...</Typography>
+        ) : watchedMovies.length > 0 ? (
+          <Grid container spacing={4}>
+            {watchedMovies.map(movie => (
+              <Grid item key={movie.movie_id} xs={12} sm={6} md={4} lg={3}>
+                <MovieCard movie={movie} />
+              </Grid>
+            ))}
+          </Grid>
+        ) : (
+          <Typography variant="h6" align="center" color="text.secondary">
+            Henüz izlediğiniz bir film yok.
+          </Typography>
+        )}
+      </TabPanel>
 
-      {/* ---------------------- */}
-      {/*     HISTORY TAB        */}
-      {/* ---------------------- */}
-
-      {activeTab === "history" && (
-        <div>
-          <h2>İzlenen Filmler</h2>
-
-          {loading ? (
-            <p>Yükleniyor...</p>
-          ) : history.length === 0 ? (
-            <p>Henüz izlediğiniz bir film yok.</p>
-          ) : (
-            <ul>
-              {history.map((item) => (
-                <li key={item.id}>
-                  <strong>Movie ID:</strong> {item.movie_id} <br />
-                  <strong>Tarih:</strong> {new Date(item.created_at).toLocaleString()}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
-      {/* ---------------------- */}
-      {/*        LIKED TAB       */}
-      {/* ---------------------- */}
-
-      {activeTab === "liked" && (
-        <div>
-          <h2>Beğenilen Filmler</h2>
-
-          {loading ? (
-            <p>Yükleniyor...</p>
-          ) : liked.length === 0 ? (
-            <p>Henüz beğendiğiniz film yok.</p>
-          ) : (
-            <ul>
-              {liked.map((item) => (
-                <li key={item.id}>
-                  <strong>Movie ID:</strong> {item.movie_id} <br />
-                  <strong>Tarih:</strong> {new Date(item.created_at).toLocaleString()}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-    </div>
+      {/* BEĞENİLENLER */}
+      <TabPanel value={value} index={1}>
+        {loading ? (
+          <Typography align="center">Yükleniyor...</Typography>
+        ) : likedMovies.length > 0 ? (
+          <Grid container spacing={4}>
+            {likedMovies.map(movie => (
+              <Grid item key={movie.movie_id} xs={12} sm={6} md={4} lg={3}>
+                <MovieCard movie={movie} />
+              </Grid>
+            ))}
+          </Grid>
+        ) : (
+          <Typography variant="h6" align="center" color="text.secondary">
+            Henüz beğendiğiniz bir film yok.
+          </Typography>
+        )}
+      </TabPanel>
+    </Container>
   );
 };
 
-export default UserActivityPage;
+export default UserHistoryPage;

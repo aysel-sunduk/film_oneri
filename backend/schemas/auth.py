@@ -35,5 +35,3 @@ class ProfileResponse(BaseModel):
     mood: Optional[str] = None
     preferred_genre: Optional[str] = None
     created_at: datetime
-
-

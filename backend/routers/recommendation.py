@@ -2,7 +2,7 @@
 AutoGluon tabanlı duygu tahmini ve film önerisi endpoint'leri
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import List, Dict, Any
 from sqlalchemy.orm import Session
 import logging
@@ -241,7 +241,7 @@ async def get_recommendations_by_emotions(
                         # Yeterli film bulunduysa dur
                         if len(scored_movies) >= request.max_recommendations * 2:
                             break
-                            
+                    
                 except Exception as e:
                     logger.warning(f"Film {movie.movie_id} için tahmin yapılamadı: {str(e)}")
                     continue
@@ -341,6 +341,45 @@ async def get_emotion_categories():
         "emotion_categories": settings.EMOTION_CATEGORIES,
         "total_categories": len(settings.EMOTION_CATEGORIES)
     }
+
+@router.get("/emotions/from-database")
+async def get_emotions_from_database(
+    db: Session = Depends(get_db),
+    include_counts: bool = Query(default=True, description="Her duygunun kaç filmde olduğunu göster")
+):
+    """
+    Veritabanındaki gerçek duygu etiketlerini ve sayılarını döndürür.
+    Frontend'de duygu seçimi için kullanılır.
+    """
+    try:
+        # Veritabanından tüm unique duygu etiketlerini çek
+        emotion_labels = db.query(Emotion.emotion_label).distinct().all()
+        unique_emotions = [e[0] for e in emotion_labels if e[0] is not None]
+        
+        result = {
+            "emotions": unique_emotions,
+            "total_unique_emotions": len(unique_emotions),
+            "status": "success"
+        }
+        
+        # Eğer sayılar isteniyorsa
+        if include_counts:
+            emotion_counts = {}
+            for emotion in unique_emotions:
+                count = db.query(Emotion).filter(Emotion.emotion_label == emotion).count()
+                emotion_counts[emotion] = count
+            
+            result["emotion_counts"] = emotion_counts
+            result["total_emotion_records"] = sum(emotion_counts.values())
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Duygu listesi hatası: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Duygu listesi alınamadı: {str(e)}"
+        )
 
 @router.get("/emotion-distribution")
 async def get_emotion_distribution(

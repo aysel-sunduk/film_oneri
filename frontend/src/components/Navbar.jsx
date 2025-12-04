@@ -26,23 +26,16 @@ const Navbar = () => {
   const handleCloseNavMenu = () => setAnchorElNav(null);
 
   // Logout
-  const handleLogout = async () => {
-    const token = localStorage.getItem("token");
-    if (token) {
-      try {
-        await fetch("http://localhost:8000/auth/logout", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        });
-      } catch (error) {
-        console.error(error);
-      }
-    }
-    localStorage.removeItem("token");
-    localStorage.removeItem("refresh_token");
-    setIsLoggedIn(false);
-    navigate("/login");
-  };
+  const handleLogout = () => {
+  localStorage.removeItem("token");
+  localStorage.removeItem("refresh_token");
+
+  window.dispatchEvent(new Event("loginStatusChanged"));
+
+  setIsLoggedIn(false);
+  navigate("/login");
+};
+
 
   // Menü seçenekleri (sadece girişli kullanıcı için)
   const navItems = [

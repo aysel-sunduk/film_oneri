@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Container, TextField, Button, Typography, Box, Paper, Snackbar, Alert } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api/api';
+import api from '../api/api'; // ✅ default export kullan
+
 
 const LoginPage = () => {
   const navigate = useNavigate();

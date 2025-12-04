@@ -1,94 +1,138 @@
-<<<<<<< Updated upstream
-import {
-    FlashOn as ExcitementIcon,
-    SentimentVerySatisfied as HappyIcon,
-    SentimentNeutral as NeutralIcon,
-    LocalCafe as RelaxIcon,
-    SentimentDissatisfied as SadIcon
-} from '@mui/icons-material';
-import { Box, Container, Grid, Paper, Typography } from '@mui/material';
-=======
-import React from 'react';
-import { Container, Typography, Box, Grid, Button, Paper } from '@mui/material';
-import { 
-  SentimentVerySatisfied as HappyIcon, 
-  SentimentDissatisfied as SadIcon, 
-  FlashOn as ExcitementIcon,
-  LocalCafe as RelaxIcon,
-  SentimentNeutral as NeutralIcon
-} from '@mui/icons-material';
->>>>>>> Stashed changes
+import React, { useEffect, useState } from "react";
+import { getEmotionCategoriesFromDatabase } from "../api/api";
+import { useNavigate } from "react-router-dom";
+import { Container, Typography, Grid, Button, Paper, Box, Chip, CircularProgress, Alert } from "@mui/material";
 
-// Her ruh halini temsil eden bir obje listesi
-const moods = [
-  { name: 'Mutlu', icon: HappyIcon, color: 'success' },
-  { name: 'Hüzünlü', icon: SadIcon, color: 'info' },
-  { name: 'Heyecanlı', icon: ExcitementIcon, color: 'warning' },
-  { name: 'Rahat', icon: RelaxIcon, color: 'default' },
-  { name: 'Sakin', icon: NeutralIcon, color: 'secondary' },
-];
+export default function MoodSelection() {
+  const navigate = useNavigate();
+  const [moods, setMoods] = useState([]);
+  const [selectedMoods, setSelectedMoods] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-const MoodSelectionPage = () => {
-  
-  // Mood seçimi yapıldığında çalışacak fonksiyon (şimdilik loglama)
-  const handleMoodSelect = (moodName) => {
-    console.log(`Seçilen Mood: ${moodName}`);
-    // Burada Axios ile bu seçimi backend'e gönderme ve 
-    // RecommendedMoviesPage sayfasına yönlendirme işlemi yapılacaktır.
-    // navigate('/movies', { state: { mood: moodName } });
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    getEmotionCategoriesFromDatabase()
+      .then((res) => {
+        if (!mounted) return;
+        setMoods(res.emotions || []);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setError("Duygu listesi yüklenemedi!");
+      })
+      .finally(() => {
+        if (!mounted) return;
+        setLoading(false);
+      });
+
+    return () => { mounted = false; };
+  }, []);
+
+  const handleToggleMood = (mood) => {
+    setSelectedMoods(prev => {
+      if (prev.includes(mood)) {
+        return prev.filter(m => m !== mood);
+      } else {
+        return [...prev, mood];
+      }
+    });
+  };
+
+  const handleGetRecommendations = () => {
+    if (selectedMoods.length === 0) {
+      alert("Lütfen en az bir ruh hali seçin!");
+      return;
+    }
+    // Seçimleri state olarak gönder
+    navigate("/movies", { state: { selectedEmotions: selectedMoods } });
   };
 
   return (
-    <Container component="main" sx={{ py: 6, minHeight: '100vh' }}>
-      <Box sx={{ textAlign: 'center', mb: 5 }}>
-        <Typography variant="h3" component="h1" gutterBottom color="primary">
-          Bugün Nasıl Hissediyorsunuz?
-        </Typography>
-        <Typography variant="h6" color="textSecondary">
-          Ruh halinize uygun film önerileri için bir mood seçin.
-        </Typography>
-      </Box>
+    <Container>
+      <Typography variant="h4" sx={{ mb: 3 }}>
+        Nasıl bir ruh halindesin?
+      </Typography>
 
-      <Grid container spacing={4} justifyContent="center">
-        {moods.map((mood) => (
-          <Grid item xs={12} sm={6} md={4} lg={3} key={mood.name}>
-            {/* Mood Butonları: 
-              Paper kullanarak butona bir kart görünümü veriyoruz.
-              Responsive arayüz için Grid sistemi kullandık.
-            */}
-            <Paper 
-              elevation={6} 
-              sx={{ 
-                height: 200, 
-                display: 'flex', 
-                flexDirection: 'column', 
-                alignItems: 'center', 
-                justifyContent: 'center',
-                p: 3,
-                cursor: 'pointer',
-                transition: 'transform 0.3s, box-shadow 0.3s',
-                '&:hover': {
-                  transform: 'scale(1.05)',
-                  boxShadow: '0 8px 30px rgba(147, 112, 219, 0.5)', // Mor gölge efekti
-                },
-                backgroundColor: 'background.paper', // Temadaki kart rengini kullan
-              }}
-              onClick={() => handleMoodSelect(mood.name)}
-            >
-              {/* İkon */}
-              <mood.icon sx={{ fontSize: 80, color: mood.color === 'default' ? 'secondary.main' : `${mood.color}.main`, mb: 1.5 }} />
-              
-              {/* Mood Adı */}
-              <Typography variant="h5" component="div" sx={{ fontWeight: 'bold' }}>
-                {mood.name}
-              </Typography>
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {loading ? (
+        <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress /></Box>
+      ) : (
+        <>
+          <Typography variant="body1" sx={{ mb: 2, color: 'text.secondary' }}>
+            Bir veya daha fazla ruh hali seçebilirsiniz:
+          </Typography>
 
-            </Paper>
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            {moods.map((mood) => {
+              const isSelected = selectedMoods.includes(mood);
+              return (
+                <Grid item xs={6} sm={4} md={3} key={mood}>
+                  <Paper
+                    onClick={() => handleToggleMood(mood)}
+                    sx={{
+                      p: 2,
+                      textAlign: "center",
+                      cursor: "pointer",
+                      fontWeight: "bold",
+                      backgroundColor: isSelected ? "primary.main" : "background.paper",
+                      color: isSelected ? "primary.contrastText" : "text.primary",
+                      border: isSelected ? "2px solid" : "1px solid",
+                      borderColor: isSelected ? "primary.main" : "divider",
+                      transition: "all 0.2s ease-in-out",
+                      "&:hover": {
+                        backgroundColor: isSelected ? "primary.dark" : "action.hover",
+                        transform: "translateY(-2px)",
+                        boxShadow: 2
+                      }
+                    }}
+                  >
+                    {mood}
+                  </Paper>
+                </Grid>
+              );
+            })}
           </Grid>
-        ))}
-      </Grid>
+
+          {selectedMoods.length > 0 && (
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="h6" sx={{ mb: 1 }}>
+                Seçilen Ruh Halleri:
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                {selectedMoods.map((mood) => (
+                  <Chip
+                    key={mood}
+                    label={mood}
+                    onDelete={() => handleToggleMood(mood)}
+                    color="primary"
+                    variant="filled"
+                  />
+                ))}
+              </Box>
+            </Box>
+          )}
+
+          <Box sx={{ textAlign: 'center', mt: 3 }}>
+            <Button
+              variant="contained"
+              color="primary"
+              size="large"
+              onClick={handleGetRecommendations}
+              disabled={selectedMoods.length === 0}
+              sx={{
+                px: 4,
+                py: 1.5,
+                fontSize: '1.1rem',
+                fontWeight: 'bold'
+              }}
+            >
+              Film Önerileri Al ({selectedMoods.length} ruh hali seçildi)
+            </Button>
+          </Box>
+        </>
+      )}
     </Container>
   );
-};
-
-export default MoodSelectionPage;
+}

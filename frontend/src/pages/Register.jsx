@@ -2,7 +2,8 @@ import React, { useState } from 'react'
 import { Container, TextField, Button, Typography, Box, Paper, Snackbar, Alert } from '@mui/material'
 import PersonAddIcon from '@mui/icons-material/PersonAdd'
 import { useNavigate } from 'react-router-dom'
-import { api } from '../api/api';
+import api from '../api/api';
+
 
 const RegisterPage = () => {
   const navigate = useNavigate();
