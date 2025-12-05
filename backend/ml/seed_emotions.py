@@ -63,11 +63,11 @@ def seed_emotions(clear_existing: bool = False, threshold: float = 0.3, auto_thr
         
         # Sadece boş olan filmleri etiketlemek için filtreleme
         if not clear_existing:
-            movies_to_process = [
+             movies_to_process = [
                 m for m in movies 
                 if not session.query(Emotion).filter(Emotion.movie_id == m.movie_id).first()
             ]
-            print(f"🔄 Etiketlenecek {len(movies_to_process)} yeni film var.")
+             print(f"🔄 Etiketlenecek {len(movies_to_process)} yeni film var.")
         else:
             movies_to_process = movies
             print(f"🔄 Tüm {len(movies_to_process)} film yeniden etiketlenecek.")
@@ -81,7 +81,7 @@ def seed_emotions(clear_existing: bool = False, threshold: float = 0.3, auto_thr
         updated_count = 0
         skipped_count = 0
         emotion_counts = {e: 0 for e in settings.EMOTION_CATEGORIES}
-        
+
         print(f"\n📊 Threshold: {'Otomatik' if auto_threshold else f'{threshold:.2f}'}")
         print("=" * 60)
         
@@ -104,13 +104,13 @@ def seed_emotions(clear_existing: bool = False, threshold: float = 0.3, auto_thr
                 added_any = False
                 for emotion in predicted_emotions:
                     if emotion not in existing_emotion_labels:
-                        new_emotion = Emotion(
-                            movie_id=movie.movie_id,
+                new_emotion = Emotion(
+                    movie_id=movie.movie_id,
                             emotion_label=emotion
-                        )
-                        session.add(new_emotion)
+                )
+                session.add(new_emotion)
                         emotion_counts[emotion] += 1
-                        created_count += 1
+                created_count += 1
                         added_any = True
                 
                 if added_any:
