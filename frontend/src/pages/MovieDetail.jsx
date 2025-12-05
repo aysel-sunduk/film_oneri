@@ -1,19 +1,19 @@
 import { ArrowBack as BackIcon, FavoriteBorder as LikeBorderIcon, Favorite as LikeIcon, Theaters as WatchIcon } from '@mui/icons-material';
 import {
-    Alert,
-    Box,
-    Button,
-    Card, CardMedia,
-    Chip,
-    CircularProgress,
-    Container,
-    Divider,
-    Grid,
-    IconButton,
-    Paper,
-    Snackbar,
-    Stack,
-    Typography
+  Alert,
+  Box,
+  Button,
+  Card, CardMedia,
+  Chip,
+  CircularProgress,
+  Container,
+  Divider,
+  Grid,
+  IconButton,
+  Paper,
+  Snackbar,
+  Stack,
+  Typography
 } from '@mui/material';
 import confetti from 'canvas-confetti';
 import React, { useEffect, useState } from 'react';
@@ -128,7 +128,28 @@ const MovieDetailPage = () => {
       
       // Backend'den dönen response'a göre state'i güncelle
       if (interactionType === "viewed") {
-        setIsWatched(true);
+        // Backend toggle mantığı ile çalışıyor, response'dan is_viewed değerini al
+        const previousWatched = isWatched;
+        let newWatchedState = false;
+        if (response && response.is_viewed !== undefined) {
+          newWatchedState = response.is_viewed;
+        } else {
+          // Fallback: Eğer response'da is_viewed yoksa, action'a göre belirle
+          if (response && response.action === "deleted") {
+            newWatchedState = false;
+          } else if (response && response.action === "created") {
+            newWatchedState = true;
+          }
+        }
+        
+        setIsWatched(newWatchedState);
+        
+        // İzleme durumu değiştiğinde alert göster
+        if (newWatchedState && !previousWatched) {
+          setSnackbar({ open: true, message: '✅ Film izlendi olarak işaretlendi!', severity: 'success' });
+        } else if (!newWatchedState && previousWatched) {
+          setSnackbar({ open: true, message: 'İzleme geçmişinden kaldırıldı', severity: 'info' });
+        }
       } else if (interactionType === "liked") {
         const previousLiked = isLiked;
         // Backend toggle mantığı ile çalışıyor, response'dan is_liked değerini al
@@ -164,9 +185,8 @@ const MovieDetailPage = () => {
   };
 
   const handleWatchToggle = () => {
-    if (!isWatched) {
-      handleHistoryAction("viewed");
-    }
+    // Backend toggle mantığı ile çalışıyor, her zaman API isteği gönder
+    handleHistoryAction("viewed");
   };
 
   const handleLikeToggle = () => {
@@ -259,10 +279,20 @@ const MovieDetailPage = () => {
                   startIcon={<WatchIcon />} 
                   fullWidth 
                   onClick={handleWatchToggle}
-                  color="primary"
-                  disabled={isWatched || actionLoading}
+                  color={isWatched ? "success" : "primary"}
+                  disabled={actionLoading}
+                  sx={{
+                    bgcolor: isWatched ? '#4caf50' : 'transparent',
+                    color: isWatched ? 'white' : 'inherit',
+                    borderColor: isWatched ? '#4caf50' : 'inherit',
+                    '&:hover': {
+                      bgcolor: isWatched ? '#388e3c' : 'inherit',
+                      transform: 'scale(1.02)',
+                    },
+                    transition: 'all 0.3s ease',
+                  }}
                 >
-                  {actionLoading ? "İşleniyor..." : (isWatched ? "İzlendi" : "İzle")}
+                  {actionLoading ? "İşleniyor..." : (isWatched ? "İzlendi ✓" : "İzle")}
                 </Button>
 
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>

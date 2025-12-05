@@ -28,7 +28,10 @@ def create_history_item(
     Eğer 'liked' interaction ise ve mevcut kayıt varsa, toggle mantığı ile siler (beğeniyi geri çeker).
     Diğer interaction'lar için mevcut kayıt varsa sadece watch_date güncellenir.
     """
-    if body.user_id != current_user.user_id:
+    # user_id null ise veya yoksa current_user.user_id kullan (daha hızlı - ekstra API isteği gerektirmez)
+    user_id_to_use = body.user_id if body.user_id is not None else current_user.user_id
+    
+    if user_id_to_use != current_user.user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Sadece kendi geçmişinizi güncelleyebilirsiniz",
@@ -40,22 +43,32 @@ def create_history_item(
 
     # Mevcut kaydı kontrol et
     existing = db.query(UserHistory).filter(
-        UserHistory.user_id == body.user_id,
+        UserHistory.user_id == user_id_to_use,
         UserHistory.movie_id == body.movie_id,
         UserHistory.interaction == body.interaction
     ).first()
     
     if existing:
-        # 🌟 TOGGLE MANTIĞI: Eğer 'liked' ise ve mevcut kayıt varsa, beğeniyi geri çek (sil)
-        if body.interaction == "liked":
+        # 🌟 TOGGLE MANTIĞI: 'liked' ve 'viewed' için mevcut kayıt varsa sil (geri çek)
+        if body.interaction in ["liked", "viewed"]:
             db.delete(existing)
             db.commit()
-            return {
-                "success": True, 
-                "message": "Beğeni geri çekildi",
-                "action": "deleted",
-                "is_liked": False
-            }
+            if body.interaction == "liked":
+                return {
+                    "success": True, 
+                    "message": "Beğeni geri çekildi",
+                    "action": "deleted",
+                    "is_liked": False,
+                    "is_viewed": None
+                }
+            else:  # viewed
+                return {
+                    "success": True, 
+                    "message": "İzleme geçmişinden kaldırıldı",
+                    "action": "deleted",
+                    "is_liked": None,
+                    "is_viewed": False
+                }
         else:
             # Diğer interaction'lar için sadece watch_date güncelle
             existing.watch_date = datetime.utcnow()
@@ -64,12 +77,13 @@ def create_history_item(
                 "success": True, 
                 "message": f"Geçmiş kaydı güncellendi ({body.interaction})",
                 "action": "updated",
-                "is_liked": True if body.interaction == "liked" else None
+                "is_liked": True if body.interaction == "liked" else None,
+                "is_viewed": True if body.interaction == "viewed" else None
             }
     
     # Yeni kayıt oluştur
     history = UserHistory(
-        user_id=body.user_id,
+        user_id=user_id_to_use,
         movie_id=body.movie_id,
         interaction=body.interaction,
     )
@@ -79,7 +93,8 @@ def create_history_item(
         "success": True, 
         "message": f"Geçmiş kaydı oluşturuldu ({body.interaction})",
         "action": "created",
-        "is_liked": True if body.interaction == "liked" else None
+        "is_liked": True if body.interaction == "liked" else None,
+        "is_viewed": True if body.interaction == "viewed" else None
     }
 
 

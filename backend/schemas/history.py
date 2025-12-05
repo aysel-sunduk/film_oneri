@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class HistoryCreateRequest(BaseModel):
-    user_id: int
+    user_id: Optional[int] = None  # Optional - backend current_user'dan alacak
     movie_id: int
     interaction: str  # viewed, liked, clicked
 

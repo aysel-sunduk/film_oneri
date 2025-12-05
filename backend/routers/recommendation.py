@@ -3,10 +3,13 @@ AutoGluon tabanlı duygu tahmini ve film önerisi endpoint'leri
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, desc
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+import random
 
 from backend.schemas.recommendation import (
     RecommendationRequest,
@@ -18,7 +21,7 @@ from backend.schemas.recommendation import (
     RecommendationResponseItem
 )
 from backend.db.connection import get_db
-from backend.db.models import Movie, Emotion
+from backend.db.models import Movie, Emotion, UserHistory
 from backend.services.recommender_service import get_recommender_service, RecommenderService
 from backend.config import settings
 
@@ -104,12 +107,17 @@ async def predict_emotions(
 async def get_recommendations_by_emotions(
     request: RecommendationRequest,
     db: Session = Depends(get_db),
-    recommender: RecommenderService = Depends(get_recommender_service)
+    recommender: RecommenderService = Depends(get_recommender_service),
+    user_id: Optional[int] = Query(default=None, description="Kullanıcı ID (opsiyonel, geçmişi hariç tutmak için)")
 ):
     """
     Seçilen duygulara göre film önerileri getirir.
-    Önce veritabanından etiketlenmiş filmleri çeker, yeterli yoksa model ile ek filmler bulur.
-    Her film için duygu olasılık skorlarını da döndürür.
+    
+    ÇEŞİTLİLİK STRATEJİSİ:
+    1. Kullanıcının daha önce izlediği/beğendiği filmleri hariç tutar (user_id varsa)
+    2. Her seferinde farklı bir "pencere"den başlar (rastgele rotasyon)
+    3. Karma strateji: Popüler + Rastgele + Yeni filmler karışımı
+    4. Paralel işleme ile hızlı analiz (9000+ film için optimize)
     """
     if not recommender.is_ready():
         raise HTTPException(
@@ -118,22 +126,36 @@ async def get_recommendations_by_emotions(
         )
     
     try:
-        # ===== 1. VERİTABANINDAN ETİKETLENMİŞ FİLMLERİ ÇEK (HIZLI) =====
+        start_time = time.time()
+        
+        # ===== 1. KULLANICI GEÇMİŞİNİ AL (HARİÇ TUTMAK İÇİN) =====
+        excluded_movie_ids = set()
+        if user_id:
+            # Kullanıcının izlediği/beğendiği filmleri al
+            user_history = db.query(UserHistory.movie_id).filter(
+                UserHistory.user_id == user_id,
+                UserHistory.interaction.in_(["viewed", "liked"])
+            ).all()
+            excluded_movie_ids = {h[0] for h in user_history}
+            logger.info(f"Kullanıcı geçmişi: {len(excluded_movie_ids)} film hariç tutulacak.")
+        
+        # ===== 2. VERİTABANINDAN ETİKETLENMİŞ FİLMLERİ ÇEK =====
         logger.info(f"Seçilen duygular: {request.selected_emotions}")
         
-        # Seçilen duygulara sahip filmleri bul
         emotion_filters = [Emotion.emotion_label == emotion 
                           for emotion in request.selected_emotions]
         
-        # Tek sorguda filmleri ve emotion'ları al
         query = db.query(Movie, Emotion.emotion_label)\
             .join(Emotion, Movie.movie_id == Emotion.movie_id)\
             .filter(or_(*emotion_filters))\
             .order_by(Movie.movie_id)
         
+        # Kullanıcı geçmişini hariç tut
+        if excluded_movie_ids:
+            query = query.filter(~Movie.movie_id.in_(excluded_movie_ids))
+        
         results = query.all()
         
-        # Sonuçları film ID'lerine göre grupla
         movie_emotions_map = {}
         movies_map = {}
         
@@ -147,23 +169,33 @@ async def get_recommendations_by_emotions(
                 movie_emotions_map[movie_id].add(emotion_label)
         
         movies_from_db = list(movies_map.values())
-        logger.info(f"Veritabanından {len(movies_from_db)} film bulundu.")
+        logger.info(f"Veritabanından {len(movies_from_db)} film bulundu (kullanıcı geçmişi hariç).")
         
-        # ===== 2. FİLMLERİ SKORLA =====
+        # Veritabanından gelen filmleri RASTGELE KARIŞTIR (çeşitlilik için)
+        random.shuffle(movies_from_db)
+        
+        # ===== 3. VERİTABANI FİLMLERİNİ SKORLA =====
         scored_movies = []
         for movie in movies_from_db:
             movie_id = movie.movie_id
             movie_emotion_set = movie_emotions_map.get(movie_id, set())
             
-            # Jaccard similarity (veritabanı etiketleri ile)
+            # OLASILIK AĞIRLIKLI SIMILARITY (veritabanı filmleri için)
             intersection = len(movie_emotion_set.intersection(set(request.selected_emotions)))
             union = len(movie_emotion_set.union(set(request.selected_emotions)))
-            similarity = intersection / union if union > 0 else 0
+            jaccard_similarity = intersection / union if union > 0 else 0
             
-            # Veritabanından geldiği için bonus skor (+0.2)
-            similarity = min(1.0, similarity + 0.2)
+            # Veritabanı filmleri için: Eşleşen duygu sayısı / Seçilen duygu sayısı
+            # (Tüm eşleşen duygular %100 güvenilir olduğu için)
+            prob_weighted = intersection / len(request.selected_emotions) if request.selected_emotions else 0
             
-            # Emotion scores formatla (veritabanı etiketleri için 1.0 skor ver)
+            # İkisini birleştir (olasılık ağırlıklı daha önemli)
+            similarity = (prob_weighted * 0.7) + (jaccard_similarity * 0.3)
+            
+            # Küçük rastgele faktör (çeşitlilik için, ama çok güçlü değil)
+            random_bonus = random.uniform(0.02, 0.08)  # 0.02-0.08 arası (azaltıldı)
+            similarity = min(1.0, similarity + random_bonus)
+            
             emotion_scores = []
             for emotion in movie_emotion_set:
                 if emotion in request.selected_emotions:
@@ -182,116 +214,334 @@ async def get_recommendations_by_emotions(
                 "emotion_scores": emotion_scores,
                 "matched_emotions": list(movie_emotion_set.intersection(set(request.selected_emotions))),
                 "source": "database",
-                "confidence": 0.9  # Veritabanından geldiği için yüksek güven
+                "confidence": 0.9
             })
         
-        # ===== 3. YETERLİ FİLM YOKSA MODEL İLE EK FİLMLER BUL =====
-        if len(scored_movies) < request.max_recommendations:
-            logger.info(f"Yeterli film yok ({len(scored_movies)}/{request.max_recommendations}). Model ile ek filmler aranıyor...")
-            
-            # Henüz skorlanmamış filmleri al
-            scored_movie_ids = {m["movie"].movie_id for m in scored_movies}
-            
-            # Overview'u olan filmleri al (zaten skorlanmamış olanlar)
-            candidate_movies = db.query(Movie).filter(
-                Movie.overview.isnot(None),
-                Movie.overview != "",
-                Movie.overview != " ",
-                ~Movie.movie_id.in_(scored_movie_ids) if scored_movie_ids else True
-            ).limit(500).all()
-            
-            logger.info(f"{len(candidate_movies)} aday film model ile analiz ediliyor...")
-            
-            # Her aday film için model tahmini yap
-            for movie in candidate_movies:
-                try:
-                    predicted_emotions, emotion_probs, _ = recommender.predict_emotions_with_proba(
-                        movie.overview,
-                        auto_threshold=False,
-                        custom_threshold=request.emotion_threshold
-                    )
-                    
-                    # Jaccard similarity
-                    predicted_set = set(predicted_emotions)
-                    requested_set = set(request.selected_emotions)
-                    
-                    if predicted_set and requested_set:
-                        intersection = len(predicted_set.intersection(requested_set))
-                        union = len(predicted_set.union(requested_set))
-                        similarity = intersection / union if union > 0 else 0
-                    else:
-                        similarity = 0
-                    
-                    # Eşik değeri üzerindeki filmleri ekle
-                    if similarity >= request.min_similarity_threshold:
-                        # Eşleşen duyguların olasılıklarını al
-                        matched_probs = [emotion_probs.get(e, 0) for e in predicted_emotions 
-                                       if e in request.selected_emotions]
-                        avg_confidence = sum(matched_probs) / len(matched_probs) if matched_probs else 0
-                        
-                        # Duygu skorlarını formatla
-                        emotion_scores = []
-                        for emotion, prob in emotion_probs.items():
-                            if emotion in predicted_emotions and prob > 0:
-                                emotion_scores.append(
-                                    MovieEmotionScore(
-                                        emotion=emotion,
-                                        score=round(prob, 3),
-                                        percentage=f"{prob*100:.1f}%"
-                                    )
-                                )
-                        emotion_scores.sort(key=lambda x: x.score, reverse=True)
-                        
-                        scored_movies.append({
-                            "movie": movie,
-                            "similarity_score": similarity,
-                            "predicted_emotions": predicted_emotions,
-                            "emotion_scores": emotion_scores,
-                            "matched_emotions": list(predicted_set.intersection(requested_set)),
-                            "source": "model",
-                            "confidence": round(avg_confidence, 3),
-                            "emotion_probs": emotion_probs
-                        })
-                        
-                        # Yeterli film bulunduysa dur
-                        if len(scored_movies) >= request.max_recommendations * 2:
-                            break
-                    
-                except Exception as e:
-                    logger.warning(f"Film {movie.movie_id} için tahmin yapılamadı: {str(e)}")
-                    continue
+        # ===== 4. KARMA STRATEJİ: POPÜLER + RASTGELE + YENİ =====
+        scored_movie_ids = {m["movie"].movie_id for m in scored_movies}
+        scored_movie_ids.update(excluded_movie_ids)  # Kullanıcı geçmişini de ekle
         
-        # ===== 4. SKORLAMA VE SIRALAMA =====
-        # Similarity + confidence + rating kombinasyonu
+        # SQL parametre limiti sorununu önlemek için: Eğer çok fazla ID varsa, sadece son 1000'ini kullan
+        # (Zaten veritabanından gelen filmler zaten skorlandı, sadece yeni filmler için filtreleme yapıyoruz)
+        MAX_SQL_PARAMS = 1000  # PostgreSQL için güvenli limit
+        excluded_ids_list = list(scored_movie_ids)
+        if len(excluded_ids_list) > MAX_SQL_PARAMS:
+            # Son 1000 ID'yi kullan (en yeni eklenenler)
+            excluded_ids_list = excluded_ids_list[-MAX_SQL_PARAMS:]
+            logger.warning(f"Çok fazla hariç tutulacak film var ({len(scored_movie_ids)}). Son {MAX_SQL_PARAMS} tanesi kullanılıyor.")
+        
+        # Toplam kaç film var?
+        base_query = db.query(Movie).filter(
+            Movie.overview.isnot(None),
+            Movie.overview != "",
+            Movie.overview != " "
+        )
+        if excluded_ids_list:
+            base_query = base_query.filter(~Movie.movie_id.in_(excluded_ids_list))
+        total_movies_count = base_query.count()
+        
+        logger.info(f"Toplam {total_movies_count} aday film mevcut (hariç tutulan: {len(scored_movie_ids)}).")
+        
+        # ===== GENRE FİLTRELEME: Seçilen duygulara göre uygun genre'ları bul =====
+        preferred_genres = set()
+        for emotion in request.selected_emotions:
+            if emotion in settings.EMOTION_GENRE_MAP:
+                preferred_genres.update(settings.EMOTION_GENRE_MAP[emotion])
+        
+        logger.info(f"Seçilen duygular için uygun genre'lar: {preferred_genres}")
+        
+        # Genre filtreleme helper fonksiyonu
+        def add_genre_filter(query):
+            """Genre filtreleme ekler (opsiyonel - eğer genre varsa)"""
+            if preferred_genres:
+                # Genre string'inde bu genre'lardan herhangi biri var mı?
+                genre_filters = [Movie.genre.ilike(f"%{genre}%") for genre in preferred_genres]
+                return query.filter(or_(*genre_filters))
+            return query
+        
+        # ===== RASTGELE ROTASYON: Her seferinde farklı başlangıç noktası =====
+        # Rastgele bir seed oluştur (her istek için farklı)
+        random_seed = random.randint(1, 1000000)
+        random.seed(random_seed)
+        logger.info(f"Rastgele seed: {random_seed}")
+        
+        # ===== STRATEJİ 1: POPÜLER FİLMLER (%30) - Genre'e uygun + Rastgele karıştırılmış =====
+        popular_count = int(request.max_recommendations * 0.3)
+        popular_query = db.query(Movie).filter(
+            Movie.overview.isnot(None),
+            Movie.overview != "",
+            Movie.overview != " "
+        )
+        if excluded_ids_list:
+            popular_query = popular_query.filter(~Movie.movie_id.in_(excluded_ids_list))
+        
+        # Önce genre'e uygun filmleri al (öncelikli)
+        popular_with_genre = add_genre_filter(popular_query)
+        popular_movies = popular_with_genre.order_by(
+            desc(Movie.vote_average),
+            desc(Movie.popularity)
+        ).limit(popular_count * 5).all()
+        
+        # Eğer yeterli film yoksa, genre'e uygun olmayanları da ekle
+        if len(popular_movies) < popular_count * 3:
+            popular_without_genre = popular_query.filter(
+                ~or_(*[Movie.genre.ilike(f"%{genre}%") for genre in preferred_genres]) if preferred_genres else True
+            ).order_by(
+                desc(Movie.vote_average),
+                desc(Movie.popularity)
+            ).limit((popular_count * 3) - len(popular_movies)).all()
+            popular_movies.extend(popular_without_genre)
+        
+        # Rastgele karıştır
+        random.shuffle(popular_movies)
+        popular_movies = popular_movies[:popular_count * 3]  # İlk 3 katını al
+        
+        # ===== STRATEJİ 2: RASTGELE FİLMLER (%50) - Genre'e uygun + Tamamen rastgele =====
+        random_count = int(request.max_recommendations * 0.5)
+        random_query = db.query(Movie).filter(
+            Movie.overview.isnot(None),
+            Movie.overview != "",
+            Movie.overview != " "
+        )
+        if excluded_ids_list:
+            random_query = random_query.filter(~Movie.movie_id.in_(excluded_ids_list))
+        
+        # Önce genre'e uygun filmleri al (öncelikli)
+        random_with_genre = add_genre_filter(random_query)
+        try:
+            random_movies = random_with_genre.order_by(func.random()).limit(random_count * 3).all()
+        except:
+            random_offset = random.randint(0, max(0, total_movies_count - random_count * 3))
+            random_movies = random_with_genre.order_by(Movie.movie_id).offset(random_offset).limit(random_count * 3).all()
+        
+        # Eğer yeterli film yoksa, genre'e uygun olmayanları da ekle
+        if len(random_movies) < random_count * 3:
+            random_without_genre = random_query.filter(
+                ~or_(*[Movie.genre.ilike(f"%{genre}%") for genre in preferred_genres]) if preferred_genres else True
+            )
+            try:
+                additional = random_without_genre.order_by(func.random()).limit((random_count * 3) - len(random_movies)).all()
+            except:
+                random_offset = random.randint(0, max(0, total_movies_count - random_count * 3))
+                additional = random_without_genre.order_by(Movie.movie_id).offset(random_offset).limit((random_count * 3) - len(random_movies)).all()
+            random_movies.extend(additional)
+        
+        # ===== STRATEJİ 3: YENİ FİLMLER (%20) - Genre'e uygun + Rastgele karıştırılmış =====
+        new_count = int(request.max_recommendations * 0.2)
+        new_query = db.query(Movie).filter(
+            Movie.overview.isnot(None),
+            Movie.overview != "",
+            Movie.overview != " "
+        )
+        if excluded_ids_list:
+            new_query = new_query.filter(~Movie.movie_id.in_(excluded_ids_list))
+        
+        # Önce genre'e uygun filmleri al (öncelikli)
+        new_with_genre = add_genre_filter(new_query)
+        new_movies = new_with_genre.order_by(desc(Movie.release_date)).limit(new_count * 5).all()
+        
+        # Eğer yeterli film yoksa, genre'e uygun olmayanları da ekle
+        if len(new_movies) < new_count * 3:
+            new_without_genre = new_query.filter(
+                ~or_(*[Movie.genre.ilike(f"%{genre}%") for genre in preferred_genres]) if preferred_genres else True
+            ).order_by(desc(Movie.release_date)).limit((new_count * 3) - len(new_movies)).all()
+            new_movies.extend(new_without_genre)
+        
+        # Rastgele karıştır
+        random.shuffle(new_movies)
+        new_movies = new_movies[:new_count * 3]  # İlk 3 katını al
+        
+        # Tüm aday filmleri birleştir (tekrarları kaldır)
+        all_candidate_movies = {}
+        for movie in popular_movies + random_movies + new_movies:
+            if movie.movie_id not in all_candidate_movies:
+                all_candidate_movies[movie.movie_id] = movie
+        
+        candidate_movies = list(all_candidate_movies.values())
+        # Aday filmleri de rastgele karıştır (ek çeşitlilik için)
+        random.shuffle(candidate_movies)
+        
+        logger.info(f"Karma strateji: {len(popular_movies)} popüler, {len(random_movies)} rastgele, {len(new_movies)} yeni = Toplam {len(candidate_movies)} aday film (rastgele karıştırıldı).")
+        
+        # ===== 5. PARALEL İŞLEME =====
+        def process_movie(movie: Movie) -> Optional[Dict[str, Any]]:
+            """Tek bir film için tahmin yapar."""
+            try:
+                predicted_emotions, emotion_probs, _ = recommender.predict_emotions_with_proba(
+                    movie.overview,
+                    auto_threshold=False,
+                    custom_threshold=request.emotion_threshold
+                )
+                
+                predicted_set = set(predicted_emotions)
+                requested_set = set(request.selected_emotions)
+                
+                # ===== OLASILIK AĞIRLIKLI SIMILARITY HESAPLAMA =====
+                if predicted_set and requested_set:
+                    # 1. Jaccard Similarity (hangi duygular eşleşti)
+                    intersection = len(predicted_set.intersection(requested_set))
+                    union = len(predicted_set.union(requested_set))
+                    jaccard_similarity = intersection / union if union > 0 else 0
+                    
+                    # 2. OLASILIK AĞIRLIKLI SIMILARITY (eşleşen duyguların olasılıklarının ortalaması)
+                    matched_probs = [emotion_probs.get(e, 0) for e in request.selected_emotions 
+                                   if e in predicted_set]
+                    prob_weighted_similarity = sum(matched_probs) / len(request.selected_emotions) if matched_probs else 0
+                    
+                    # 3. İKİSİNİ BİRLEŞTİR (olasılık daha önemli - %70, Jaccard %30)
+                    similarity = (prob_weighted_similarity * 0.7) + (jaccard_similarity * 0.3)
+                else:
+                    similarity = 0
+                
+                if similarity >= request.min_similarity_threshold:
+                    # Eşleşen duyguların ortalama olasılığı (confidence için)
+                    matched_probs = [emotion_probs.get(e, 0) for e in predicted_emotions 
+                                   if e in request.selected_emotions]
+                    avg_confidence = sum(matched_probs) / len(matched_probs) if matched_probs else 0
+                    
+                    emotion_scores = []
+                    for emotion, prob in emotion_probs.items():
+                        if emotion in predicted_emotions and prob > 0:
+                            emotion_scores.append(
+                                MovieEmotionScore(
+                                    emotion=emotion,
+                                    score=round(prob, 3),
+                                    percentage=f"{prob*100:.1f}%"
+                                )
+                            )
+                    emotion_scores.sort(key=lambda x: x.score, reverse=True)
+                    
+                    return {
+                        "movie": movie,
+                        "similarity_score": similarity,
+                        "predicted_emotions": predicted_emotions,
+                        "emotion_scores": emotion_scores,
+                        "matched_emotions": list(predicted_set.intersection(requested_set)),
+                        "source": "model",
+                        "confidence": round(avg_confidence, 3),
+                        "emotion_probs": emotion_probs
+                    }
+                return None
+                
+            except Exception as e:
+                logger.warning(f"Film {movie.movie_id} için tahmin yapılamadı: {str(e)}")
+                return None
+        
+        # Paralel işleme
+        processed_count = 0
+        found_count = 0
+        
+        # Eğer aday film yoksa, paralel işlemeyi atla
+        if not candidate_movies:
+            logger.info("Aday film bulunamadı, paralel işleme atlanıyor.")
+        else:
+            max_workers = max(1, min(6, len(candidate_movies)))  # En az 1 olmalı
+            target_count = request.max_recommendations * 3
+            
+            logger.info(f"Paralel işleme: {max_workers} thread, {len(candidate_movies)} film...")
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_movie = {
+                    executor.submit(process_movie, movie): movie 
+                    for movie in candidate_movies
+                }
+                
+                for future in as_completed(future_to_movie):
+                    processed_count += 1
+                    result = future.result()
+                    
+                    if result is not None:
+                        scored_movies.append(result)
+                        found_count += 1
+                    
+                    if processed_count % 50 == 0:
+                        logger.info(
+                            f"İlerleme: {processed_count}/{len(candidate_movies)} film analiz edildi, "
+                            f"{found_count} uygun film bulundu."
+                        )
+                    
+                    if len(scored_movies) >= target_count:
+                        logger.info(f"Yeterli film bulundu ({len(scored_movies)}), analiz durduruluyor.")
+                        break
+        
+        elapsed_time = time.time() - start_time
+        logger.info(
+            f"Analiz tamamlandı: {processed_count} film işlendi, "
+            f"{found_count} uygun film bulundu, toplam {len(scored_movies)} film skorlandı. "
+            f"Süre: {elapsed_time:.2f} saniye."
+        )
+        
+        # ===== 6. SKORLAMA VE SIRALAMA =====
+        # Rastgele çeşitlilik faktörü (her istek için farklı) - AZALTILDI
+        diversity_factor = random.uniform(-0.05, 0.05)  # -5% ile +5% arası (önceden -10% ile +10%)
+        
         for rec in scored_movies:
             movie = rec["movie"]
-            base_score = rec["similarity_score"]
+            base_score = rec["similarity_score"]  # Artık olasılık ağırlıklı similarity
             
-            # Rating bonusu (vote_average varsa)
             rating_bonus = 0
             if movie.vote_average:
-                rating_bonus = (movie.vote_average - 5.0) / 20.0  # 5.0'dan yüksekse bonus (max 0.25)
+                rating_bonus = (movie.vote_average - 5.0) / 20.0
             
-            # Confidence bonusu
-            confidence_bonus = rec.get("confidence", 0) * 0.1
+            # OLASILIK DEĞERLERİNE DAHA FAZLA AĞIRLIK VER
+            # Confidence (ortalama olasılık) daha önemli
+            confidence_bonus = rec.get("confidence", 0) * 0.3  # 0.1'den 0.3'e çıkarıldı (3 kat artırıldı)
             
-            # Final skor
-            rec["final_score"] = base_score + rating_bonus + confidence_bonus
+            # GENRE BONUSU: Film'in genre'u seçilen duygulara uygun mu?
+            genre_bonus = 0
+            if preferred_genres and movie.genre:
+                movie_genres = [g.strip() for g in movie.genre.split(",")] if movie.genre else []
+                # Film'in genre'u ile uygun genre'lar arasında eşleşme var mı?
+                matching_genres = [g for g in movie_genres if any(pref_genre.lower() in g.lower() or g.lower() in pref_genre.lower() for pref_genre in preferred_genres)]
+                if matching_genres:
+                    # Eşleşen genre sayısına göre bonus (max 0.15)
+                    genre_bonus = min(0.15, len(matching_genres) * 0.05)
+            
+            # Veritabanından gelenler için küçük bonus
+            database_bonus = 0.02 if rec.get("source") == "database" else 0
+            
+            # RASTGELE ÇEŞİTLİLİK: AZALTILDI (olasılık değerleri daha önemli)
+            # (Movie ID'ye göre deterministik ama her istek için farklı)
+            movie_random_factor = (hash(str(movie.movie_id) + str(random_seed)) % 100) / 1000.0  # -0.05 ile +0.05 arası (yarıya indirildi)
+            
+            rec["final_score"] = base_score + rating_bonus + confidence_bonus + genre_bonus + database_bonus + diversity_factor + movie_random_factor
         
-        # Final skora göre sırala
+        # Skorlara göre sırala
         scored_movies.sort(key=lambda x: x["final_score"], reverse=True)
         
-        # ===== 5. YANITI FORMATLA =====
+        # İlk N filmin sırasını GÜÇLÜ bir şekilde karıştır (çeşitlilik için)
+        # En yüksek skorlu filmler arasında daha fazla rastgele değişim
+        if len(scored_movies) > request.max_recommendations:
+            # İlk max_recommendations * 3 filmin tamamını karıştır
+            top_movies = scored_movies[:request.max_recommendations * 3]
+            remaining_movies = scored_movies[request.max_recommendations * 3:]
+            
+            # Top filmleri 3 gruba böl ve her grubu karıştır
+            group_size = len(top_movies) // 3
+            group1 = top_movies[:group_size]
+            group2 = top_movies[group_size:group_size*2]
+            group3 = top_movies[group_size*2:]
+            
+            # Her grubu karıştır
+            random.shuffle(group1)
+            random.shuffle(group2)
+            random.shuffle(group3)
+            
+            # Grupları birleştir (biraz daha karıştır)
+            top_movies = group1 + group2 + group3
+            random.shuffle(top_movies[:min(request.max_recommendations * 2, len(top_movies))])  # İlk 2 katını tekrar karıştır
+            
+            scored_movies = top_movies + remaining_movies
+        
+        # ===== 7. YANITI FORMATLA =====
         recommendations = []
         for rec in scored_movies[:request.max_recommendations]:
             movie = rec["movie"]
             
-            # Release year'ı release_date'den çıkar
             release_year = None
             if movie.release_date:
                 release_year = movie.release_date.year
             
-            # Genre'u listeye çevir
             genres_list = []
             if movie.genre:
                 genres_list = [g.strip() for g in movie.genre.split(",")]
@@ -313,7 +563,8 @@ async def get_recommendations_by_emotions(
                 )
             )
         
-        logger.info(f"Toplam {len(recommendations)} öneri döndürülüyor.")
+        total_time = time.time() - start_time
+        logger.info(f"Toplam {len(recommendations)} öneri döndürülüyor. Süre: {total_time:.2f} saniye.")
         
         return RecommendationResponse(
             selected_emotions=request.selected_emotions,
