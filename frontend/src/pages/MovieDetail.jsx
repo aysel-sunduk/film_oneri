@@ -1,10 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  Container, Typography, Box, Grid, Card, CardMedia, Paper, 
-  Button, Stack, Divider, CircularProgress, Alert, Chip
+import { ArrowBack as BackIcon, FavoriteBorder as LikeBorderIcon, Favorite as LikeIcon, Theaters as WatchIcon } from '@mui/icons-material';
+import {
+    Alert,
+    Box,
+    Button,
+    Card, CardMedia,
+    Chip,
+    CircularProgress,
+    Container,
+    Divider,
+    Grid,
+    IconButton,
+    Paper,
+    Snackbar,
+    Stack,
+    Typography
 } from '@mui/material';
-import { Theaters as WatchIcon, Favorite as LikeIcon, ArrowBack as BackIcon } from '@mui/icons-material';
+import confetti from 'canvas-confetti';
+import React, { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { addHistoryItem, getHistoryByInteraction } from '../api/api';
 
 const MovieDetailPage = () => {
@@ -17,6 +30,7 @@ const MovieDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   useEffect(() => {
     const fetchMovieAndHistory = async () => {
@@ -75,17 +89,75 @@ const MovieDetailPage = () => {
     fetchMovieAndHistory();
   }, [id]);
 
+  // --- Konfeti Patlatma Fonksiyonu ---
+  const triggerConfetti = () => {
+    const duration = 3000;
+    const animationEnd = Date.now() + duration;
+    const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
+
+    function randomInRange(min, max) {
+      return Math.random() * (max - min) + min;
+    }
+
+    const interval = setInterval(function() {
+      const timeLeft = animationEnd - Date.now();
+
+      if (timeLeft <= 0) {
+        return clearInterval(interval);
+      }
+
+      const particleCount = 50 * (timeLeft / duration);
+      
+      confetti({
+        ...defaults,
+        particleCount,
+        origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 }
+      });
+      confetti({
+        ...defaults,
+        particleCount,
+        origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 }
+      });
+    }, 250);
+  };
+
   const handleHistoryAction = async (interactionType) => {
     try {
       setActionLoading(true);
-      await addHistoryItem(id, interactionType);
+      const response = await addHistoryItem(id, interactionType);
       
-      if (interactionType === "viewed") setIsWatched(true);
-      if (interactionType === "liked") setIsLiked(!isLiked); // Toggle işlemi
+      // Backend'den dönen response'a göre state'i güncelle
+      if (interactionType === "viewed") {
+        setIsWatched(true);
+      } else if (interactionType === "liked") {
+        const previousLiked = isLiked;
+        // Backend toggle mantığı ile çalışıyor, response'dan is_liked değerini al
+        let newLikedState = false;
+        if (response && response.is_liked !== undefined) {
+          newLikedState = response.is_liked;
+        } else {
+          // Fallback: Eğer response'da is_liked yoksa, action'a göre belirle
+          if (response && response.action === "deleted") {
+            newLikedState = false;
+          } else if (response && response.action === "created") {
+            newLikedState = true;
+          }
+        }
+        
+        setIsLiked(newLikedState);
+        
+        // Beğenilince konfeti patlat ve alert göster
+        if (newLikedState && !previousLiked) {
+          triggerConfetti();
+          setSnackbar({ open: true, message: '❤️ Beğenildi!', severity: 'success' });
+        } else if (!newLikedState && previousLiked) {
+          setSnackbar({ open: true, message: 'Beğeni geri çekildi', severity: 'info' });
+        }
+      }
       
     } catch (err) {
       console.error(`${interactionType} işlemi başarısız:`, err);
-      alert(`${interactionType} işlemi başarısız. Lütfen tekrar deneyin.`);
+      setSnackbar({ open: true, message: 'Bir hata oluştu', severity: 'error' });
     } finally {
       setActionLoading(false);
     }
@@ -181,7 +253,7 @@ const MovieDetailPage = () => {
             </Card>
 
             <Paper elevation={3} sx={{ p: 2, mt: 3, borderRadius: 2 }}>
-              <Stack spacing={1}>
+              <Stack spacing={2} alignItems="center">
                 <Button 
                   variant={isWatched ? "contained" : "outlined"} 
                   startIcon={<WatchIcon />} 
@@ -193,22 +265,39 @@ const MovieDetailPage = () => {
                   {actionLoading ? "İşleniyor..." : (isWatched ? "İzlendi" : "İzle")}
                 </Button>
 
-                <Button 
-                  variant={isLiked ? "contained" : "outlined"} 
-                  startIcon={<LikeIcon />} 
-                  fullWidth 
-                  onClick={handleLikeToggle}
-                  color="secondary"
-                  disabled={actionLoading}
-                >
-                  {actionLoading ? "İşleniyor..." : (isLiked ? "Beğenildi ✓" : "Beğen")}
-                </Button>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
+                  <IconButton
+                    onClick={handleLikeToggle}
+                    disabled={actionLoading}
+                    sx={{
+                      color: isLiked ? '#4caf50' : '#757575',
+                      backgroundColor: isLiked ? 'rgba(76, 175, 80, 0.1)' : 'transparent',
+                      border: isLiked ? '2px solid #4caf50' : '2px solid #e0e0e0',
+                      borderRadius: '50%',
+                      width: 64,
+                      height: 64,
+                      transition: 'all 0.3s ease',
+                      '&:hover': {
+                        backgroundColor: isLiked ? 'rgba(76, 175, 80, 0.2)' : 'rgba(0, 0, 0, 0.04)',
+                        transform: 'scale(1.15)',
+                      },
+                      '&:disabled': {
+                        opacity: 0.5,
+                      }
+                    }}
+                  >
+                    {isLiked ? (
+                      <LikeIcon sx={{ fontSize: 36, color: '#4caf50' }} />
+                    ) : (
+                      <LikeBorderIcon sx={{ fontSize: 36 }} />
+                    )}
+                  </IconButton>
+                </Box>
 
                 <Button 
                   variant="outlined" 
                   fullWidth 
                   onClick={() => navigate('/movies')}
-                  sx={{ mt: 1 }}
                 >
                   Geri Dön
                 </Button>
@@ -271,6 +360,27 @@ const MovieDetailPage = () => {
           </Grid>
         </Grid>
       </Container>
+      
+      {/* Snackbar Alert */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={3000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Box
+          sx={{
+            backgroundColor: snackbar.severity === 'success' ? '#4caf50' : snackbar.severity === 'error' ? '#f44336' : '#2196f3',
+            color: 'white',
+            padding: '12px 24px',
+            borderRadius: '8px',
+            fontWeight: 'bold',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          }}
+        >
+          {snackbar.message}
+        </Box>
+      </Snackbar>
     </Box>
   );
 };

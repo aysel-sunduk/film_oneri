@@ -5,6 +5,7 @@ AutoGluon tabanlı duygu tahmini ve film önerisi endpoint'leri
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import List, Dict, Any
 from sqlalchemy.orm import Session
+from sqlalchemy import or_, func
 import logging
 
 from backend.schemas.recommendation import (
@@ -20,7 +21,6 @@ from backend.db.connection import get_db
 from backend.db.models import Movie, Emotion
 from backend.services.recommender_service import get_recommender_service, RecommenderService
 from backend.config import settings
-from sqlalchemy import or_
 
 router = APIRouter(prefix="/recommendation", tags=["recommendation"])
 logger = logging.getLogger(__name__)
@@ -125,20 +125,35 @@ async def get_recommendations_by_emotions(
         emotion_filters = [Emotion.emotion_label == emotion 
                           for emotion in request.selected_emotions]
         
-        movies_from_db = db.query(Movie).join(Emotion).filter(
-            or_(*emotion_filters)
-        ).distinct().all()
+        # Tek sorguda filmleri ve emotion'ları al
+        query = db.query(Movie, Emotion.emotion_label)\
+            .join(Emotion, Movie.movie_id == Emotion.movie_id)\
+            .filter(or_(*emotion_filters))\
+            .order_by(Movie.movie_id)
         
+        results = query.all()
+        
+        # Sonuçları film ID'lerine göre grupla
+        movie_emotions_map = {}
+        movies_map = {}
+        
+        for movie, emotion_label in results:
+            movie_id = movie.movie_id
+            movies_map[movie_id] = movie
+            
+            if movie_id not in movie_emotions_map:
+                movie_emotions_map[movie_id] = set()
+            if emotion_label:
+                movie_emotions_map[movie_id].add(emotion_label)
+        
+        movies_from_db = list(movies_map.values())
         logger.info(f"Veritabanından {len(movies_from_db)} film bulundu.")
         
-        # Veritabanından gelen filmleri skorla
+        # ===== 2. FİLMLERİ SKORLA =====
         scored_movies = []
         for movie in movies_from_db:
-            # Bu filmde hangi duygular var?
-            movie_emotions = db.query(Emotion.emotion_label).filter(
-                Emotion.movie_id == movie.movie_id
-            ).all()
-            movie_emotion_set = {e[0] for e in movie_emotions}
+            movie_id = movie.movie_id
+            movie_emotion_set = movie_emotions_map.get(movie_id, set())
             
             # Jaccard similarity (veritabanı etiketleri ile)
             intersection = len(movie_emotion_set.intersection(set(request.selected_emotions)))
@@ -170,7 +185,7 @@ async def get_recommendations_by_emotions(
                 "confidence": 0.9  # Veritabanından geldiği için yüksek güven
             })
         
-        # ===== 2. YETERLİ FİLM YOKSA MODEL İLE EK FİLMLER BUL =====
+        # ===== 3. YETERLİ FİLM YOKSA MODEL İLE EK FİLMLER BUL =====
         if len(scored_movies) < request.max_recommendations:
             logger.info(f"Yeterli film yok ({len(scored_movies)}/{request.max_recommendations}). Model ile ek filmler aranıyor...")
             
@@ -183,7 +198,7 @@ async def get_recommendations_by_emotions(
                 Movie.overview != "",
                 Movie.overview != " ",
                 ~Movie.movie_id.in_(scored_movie_ids) if scored_movie_ids else True
-            ).limit(500).all()  # İlk 500'ü kontrol et (performans için)
+            ).limit(500).all()
             
             logger.info(f"{len(candidate_movies)} aday film model ile analiz ediliyor...")
             
@@ -246,7 +261,7 @@ async def get_recommendations_by_emotions(
                     logger.warning(f"Film {movie.movie_id} için tahmin yapılamadı: {str(e)}")
                     continue
         
-        # ===== 3. SKORLAMA VE SIRALAMA =====
+        # ===== 4. SKORLAMA VE SIRALAMA =====
         # Similarity + confidence + rating kombinasyonu
         for rec in scored_movies:
             movie = rec["movie"]
@@ -266,7 +281,7 @@ async def get_recommendations_by_emotions(
         # Final skora göre sırala
         scored_movies.sort(key=lambda x: x["final_score"], reverse=True)
         
-        # ===== 4. YANITI FORMATLA =====
+        # ===== 5. YANITI FORMATLA =====
         recommendations = []
         for rec in scored_movies[:request.max_recommendations]:
             movie = rec["movie"]
@@ -291,9 +306,9 @@ async def get_recommendations_by_emotions(
                     emotion_scores=rec["emotion_scores"],
                     matched_emotions=rec["matched_emotions"],
                     poster_url=movie.poster_url,
-                    release_year=release_year,  # ✅ Düzeltildi: release_date.year
-                    rating=movie.vote_average,  # ✅ Düzeltildi: vote_average
-                    genres=genres_list if genres_list else None,  # ✅ Düzeltildi: genre.split(",")
+                    release_year=release_year,
+                    rating=movie.vote_average,
+                    genres=genres_list if genres_list else None,
                     confidence=round(rec.get("confidence", 0), 3)
                 )
             )
@@ -352,25 +367,44 @@ async def get_emotions_from_database(
     Frontend'de duygu seçimi için kullanılır.
     """
     try:
-        # Veritabanından tüm unique duygu etiketlerini çek
-        emotion_labels = db.query(Emotion.emotion_label).distinct().all()
-        unique_emotions = [e[0] for e in emotion_labels if e[0] is not None]
-        
-        result = {
-            "emotions": unique_emotions,
-            "total_unique_emotions": len(unique_emotions),
-            "status": "success"
-        }
-        
-        # Eğer sayılar isteniyorsa
+        # ===== TEK SORGU İLE TÜM DUYGULAR VE SAYILARINI AL =====
         if include_counts:
-            emotion_counts = {}
-            for emotion in unique_emotions:
-                count = db.query(Emotion).filter(Emotion.emotion_label == emotion).count()
-                emotion_counts[emotion] = count
+            # TEK SORGU: GROUP BY ile tüm duygu sayılarını al
+            emotion_counts_result = db.query(
+                Emotion.emotion_label,
+                func.count(Emotion.emotion_id).label('count')
+            ).filter(
+                Emotion.emotion_label.isnot(None)
+            ).group_by(
+                Emotion.emotion_label
+            ).all()
             
-            result["emotion_counts"] = emotion_counts
-            result["total_emotion_records"] = sum(emotion_counts.values())
+            # Sonuçları işle
+            unique_emotions = []
+            emotion_counts = {}
+            
+            for emotion_label, count in emotion_counts_result:
+                if emotion_label:
+                    unique_emotions.append(emotion_label)
+                    emotion_counts[emotion_label] = count
+            
+            result = {
+                "emotions": unique_emotions,
+                "total_unique_emotions": len(unique_emotions),
+                "emotion_counts": emotion_counts,
+                "total_emotion_records": sum(emotion_counts.values()) if emotion_counts else 0,
+                "status": "success"
+            }
+        else:
+            # Sadece unique duygular
+            emotion_labels = db.query(Emotion.emotion_label).distinct().all()
+            unique_emotions = [e[0] for e in emotion_labels if e[0] is not None]
+            
+            result = {
+                "emotions": unique_emotions,
+                "total_unique_emotions": len(unique_emotions),
+                "status": "success"
+            }
         
         return result
         
@@ -384,7 +418,8 @@ async def get_emotions_from_database(
 @router.get("/emotion-distribution")
 async def get_emotion_distribution(
     db: Session = Depends(get_db),
-    recommender: RecommenderService = Depends(get_recommender_service)
+    recommender: RecommenderService = Depends(get_recommender_service),
+    limit: int = Query(default=100, description="Analiz edilecek maksimum film sayısı")
 ):
     """
     Veritabanındaki filmlerin duygu dağılımını analiz eder.
@@ -393,17 +428,59 @@ async def get_emotion_distribution(
         raise HTTPException(status_code=503, detail="Model hazır değil")
     
     try:
-        movies = db.query(Movie).filter(Movie.overview.isnot(None)).limit(100).all()
+        # Overview'u olan filmleri al
+        movies = db.query(Movie).filter(
+            Movie.overview.isnot(None),
+            Movie.overview != "",
+            Movie.overview != " "
+        ).limit(limit).all()
         
-        emotion_counts = {emotion: 0 for emotion in settings.EMOTION_CATEGORIES}
-        total_predictions = 0
+        if not movies:
+            return {
+                "total_movies_analyzed": 0,
+                "total_predictions": 0,
+                "emotion_counts": {},
+                "emotion_percentages": {},
+                "most_common_emotion": None,
+                "status": "success",
+                "message": "Analiz edilecek film bulunamadı"
+            }
         
-        for movie in movies:
-            if movie.overview:
-                emotions, _, _ = recommender.predict_emotions_with_proba(movie.overview)
-                for emotion in emotions:
-                    emotion_counts[emotion] += 1
-                total_predictions += len(emotions)
+        # Toplu tahmin yapmak için tüm overview'ları topla
+        overviews = [movie.overview for movie in movies if movie.overview]
+        
+        # Toplu tahmin yap (eğer recommender toplu tahmin destekliyorsa)
+        try:
+            # Önce tek tek deneyelim, toplu tahmin yoksa
+            emotion_counts = {emotion: 0 for emotion in settings.EMOTION_CATEGORIES}
+            total_predictions = 0
+            
+            for movie in movies:
+                if movie.overview:
+                    emotions, _, _ = recommender.predict_emotions_with_proba(movie.overview)
+                    for emotion in emotions:
+                        if emotion in emotion_counts:
+                            emotion_counts[emotion] += 1
+                    total_predictions += len(emotions)
+        except Exception as model_error:
+            # Model toplu tahmin yapamıyorsa, örnekleme yap
+            logger.warning(f"Toplu tahmin başarısız, örnekleme yapılıyor: {model_error}")
+            
+            # Rastgele 20 film seç
+            import random
+            sample_size = min(20, len(movies))
+            sample_movies = random.sample(movies, sample_size)
+            
+            emotion_counts = {emotion: 0 for emotion in settings.EMOTION_CATEGORIES}
+            total_predictions = 0
+            
+            for movie in sample_movies:
+                if movie.overview:
+                    emotions, _, _ = recommender.predict_emotions_with_proba(movie.overview)
+                    for emotion in emotions:
+                        if emotion in emotion_counts:
+                            emotion_counts[emotion] += 1
+                    total_predictions += len(emotions)
         
         # Yüzdeleri hesapla
         emotion_percentages = {}
@@ -411,14 +488,23 @@ async def get_emotion_distribution(
             percentage = (count / total_predictions * 100) if total_predictions > 0 else 0
             emotion_percentages[emotion] = round(percentage, 2)
         
+        # En yaygın duyguyu bul
+        most_common_emotion = None
+        if total_predictions > 0 and emotion_counts:
+            most_common_emotion = max(emotion_counts.items(), key=lambda x: x[1])[0]
+        
         return {
             "total_movies_analyzed": len(movies),
             "total_predictions": total_predictions,
             "emotion_counts": emotion_counts,
             "emotion_percentages": emotion_percentages,
-            "most_common_emotion": max(emotion_counts.items(), key=lambda x: x[1])[0] if total_predictions > 0 else None,
+            "most_common_emotion": most_common_emotion,
             "status": "success"
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analiz hatası: {str(e)}")
+        logger.error(f"Analiz hatası: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Analiz sırasında hata oluştu: {str(e)}"
+        )

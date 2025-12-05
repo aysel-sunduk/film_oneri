@@ -66,35 +66,37 @@ export const getProfile = async () => {
 // 🟥 History API (Tam Set)
 // ----------------------------
 
-// History ekle - Güncellenmiş versiyon
-export const addHistoryItem = async (movie_id, interaction, user_id = null) => {
-  // Eğer user_id verilmediyse, backend'in current_user'ı kullanması için
-  // body'de user_id göndermeyebiliriz veya null bırakabiliriz
-  // Backend'de body.user_id != current_user.user_id kontrolü olduğu için
-  // user_id'yi frontend'ten göndermemek daha iyi
-  const payload = {
-    movie_id,
-    interaction
-  };
-  
-  // Eğer backend hala user_id bekliyorsa ve güvenli bir şekilde alabiliyorsak
-  const token = localStorage.getItem("token");
-  if (token && !user_id) {
-    try {
-      // Profile'dan user_id al
-      const profile = await getProfile();
-      if (profile && profile.user_id) {
-        payload.user_id = profile.user_id;
-      }
-    } catch (err) {
-      console.warn("Profile alınamadı, user_id gönderilmeyecek");
-    }
-  } else if (user_id) {
-    payload.user_id = user_id;
-  }
+// History ekle - Temiz ve Otomatik user_id Çekme Versiyonu
+export const addHistoryItem = async (movie_id, interaction) => {
+    // 1. Token'ı interceptor zaten ekliyor.
 
-  const response = await api.post("/history", payload);
-  return response.data;
+    // 2. FastAPI'deki body.user_id kontrolü için user_id'yi Profile API'den çek
+    let userIdToSend = null;
+    try {
+        const profile = await getProfile();
+        if (profile && profile.user_id) {
+            userIdToSend = profile.user_id;
+        } else {
+            throw new Error("Kullanıcı profil bilgileri (user_id) alınamadı.");
+        }
+    } catch (err) {
+        console.error("Profile çekilirken hata oluştu. History kaydı başarısız.", err);
+        throw "Oturum bilgileri eksik veya geçersiz. Giriş yapınız.";
+    }
+
+    const payload = {
+        movie_id,
+        interaction,
+        user_id: userIdToSend // Otomatik olarak çekilen user_id'yi ekle
+    };
+
+    try {
+        const response = await api.post("/history", payload);
+        return response.data;
+    } catch (error) {
+        console.error(`[API Error] History ekleme hatası (${interaction}):`, error.response?.data || error.message);
+        throw error.response?.data?.detail || "History eklenirken bir hata oluştu.";
+    }
 };
 
 // Alternatif: user_id gerekmeyen versiyon (backend current_user'dan alır)
