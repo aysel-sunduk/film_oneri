@@ -37,7 +37,8 @@ const LoginPage = () => {
       localStorage.setItem("token", response.data.token);
       window.dispatchEvent(new Event("loginStatusChanged"));
 
-      navigate("/");
+      navigate("/dashboard");
+
 
     } catch (error) {
       console.error(error.response?.data?.detail || error.message);

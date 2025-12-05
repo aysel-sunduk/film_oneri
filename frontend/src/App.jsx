@@ -1,38 +1,51 @@
-import { ThemeProvider } from '@mui/material/styles';
-import { CssBaseline } from '@mui/material';
-import theme from './theme'
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { ThemeProvider } from "@mui/material/styles";
+import { CssBaseline } from "@mui/material";
+import theme from "./theme";   
 
-import Navbar from './components/Navbar';
-import Dashboard from './pages/Dashboard';
-import MoodSelectionPage from './pages/MoodSelection';
-import RecommendedMoviesPage from './pages/RecommendedMovies';
-import MovieDetailPage from './pages/MovieDetail';
-import UserHistoryPage from './pages/UserHistory';
-import LoginPage from './pages/Login';
-import RegisterPage from './pages/Register';
+import { BrowserRouter as Router, Routes, Route, useLocation } from "react-router-dom";
+import Navbar from "./components/Navbar";
 
-function App() {
+// Pages
+import HomePage from "./pages/HomePage";
+import LoginPage from "./pages/Login";
+import RegisterPage from "./pages/Register";
+import Dashboard from "./pages/Dashboard";
+import Mood from "./pages/MoodSelection";
+import Movies from "./pages/RecommendedMovies";
+import History from "./pages/UserHistory";
+import MovieDetailPage from "./pages/MovieDetail";
+
+function AppContent() {
+  const location = useLocation();
+  const hideNavbarPaths = ["/", "/login", "/register"];
+  const hideNavbar = hideNavbarPaths.includes(location.pathname);
+
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <Router>
-        <Navbar />
-        <Routes>
-          {/* Auth */}
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
+    <>
+      {!hideNavbar && <Navbar />}
 
-          {/* Ana Uygulama */}
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/mood" element={<MoodSelectionPage />} />
-          <Route path="/movies" element={<RecommendedMoviesPage />} />
-          <Route path="/movies/:id" element={<MovieDetailPage />} />
-          <Route path="/history" element={<UserHistoryPage />} />
-        </Routes>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/mood" element={<Mood />} />
+        <Route path="/movies" element={<Movies />} />
+        <Route path="/history" element={<History />} />
+         <Route path="/movies/:id" element={<MovieDetailPage />} />
+      </Routes>
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider theme={theme}>    
+      <CssBaseline />                
+      <Router>
+        <AppContent />
       </Router>
     </ThemeProvider>
   );
 }
-
-export default App;
