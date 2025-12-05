@@ -1,18 +1,23 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Card,
-  CardMedia,
-  CardContent,
-  Typography,
-  Chip,
-  Box,
-  Rating
+  Card, CardMedia, CardContent, Typography, Chip, Box, Rating,
+  Button, Stack
 } from '@mui/material';
 import StarIcon from '@mui/icons-material/Star';
-import { Link } from 'react-router-dom';
+import FavoriteIcon from "@mui/icons-material/Favorite";
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import { useNavigate } from 'react-router-dom';
+
+import { addHistoryItem, getHistoryByInteraction } from "../api/api";
 
 const MovieCard = ({ movie }) => {
+  const navigate = useNavigate();
+  const [alreadyViewed, setAlreadyViewed] = useState(false);
+  const [alreadyLiked, setAlreadyLiked] = useState(false);
+
   if (!movie) return null;
+
+  const token = localStorage.getItem("token");
 
   const {
     movie_id,
@@ -21,60 +26,92 @@ const MovieCard = ({ movie }) => {
     rating,
     vote_average,
     genres,
-    genre,
-    predicted_emotions,
-    similarity_score
+    genre
   } = movie;
 
-  // Türler: hem string hem array gelebilir
   const parsedGenres = Array.isArray(genres)
     ? genres
     : genre
     ? genre.split(',').map(g => g.trim())
     : [];
 
-  // Rating hesabı
   const finalRating = ((rating || vote_average) || 0);
   const ratingForStars = finalRating / 2;
-
-  // Poster fallback
   const placeholderPoster = "https://placehold.co/400x600?text=No+Image";
+
+  // Daha önce izlenip izlenmediğini kontrol et
+  useEffect(() => {
+    const checkHistory = async () => {
+      try {
+        if (!token) return;
+        const viewedRes = await getHistoryByInteraction("viewed", token);
+        const likedRes = await getHistoryByInteraction("liked", token);
+
+        setAlreadyViewed(viewedRes.items.some(item => item.movie_id === movie_id));
+        setAlreadyLiked(likedRes.items.some(item => item.movie_id === movie_id));
+      } catch (err) {
+        console.error("Geçmiş kontrol hatası:", err);
+      }
+    };
+    checkHistory();
+  }, [movie_id, token]);
+
+  // History ekleme fonksiyonu
+  const sendHistory = async (interactionType) => {
+    try {
+      if (!token) return;
+
+      await addHistoryItem(
+        null,
+        movie_id,
+        interactionType,
+        token
+      );
+
+      if (interactionType === "viewed") setAlreadyViewed(true);
+      if (interactionType === "liked") setAlreadyLiked(true);
+
+      console.log("History eklendi:", interactionType);
+    } catch (err) {
+      console.error("History ekleme hatası:", err);
+    }
+  };
+
+  const handleLike = (e) => {
+    e.stopPropagation();
+    if (!alreadyLiked) sendHistory("liked");
+  };
+
+  const handleWatch = (e) => {
+    e.stopPropagation();
+    if (!alreadyViewed) sendHistory("viewed");
+  };
 
   return (
     <Card
-      component={Link}
-      to={`/movies/${movie_id}`}
       sx={{
         height: '100%',
-        textDecoration: 'none',
         borderRadius: 2,
         overflow: 'hidden',
         transition: 'all 0.25s ease',
+        cursor: 'pointer',
         '&:hover': {
           transform: 'translateY(-6px)',
           boxShadow: '0 8px 25px rgba(147, 112, 219, 0.35)',
         }
       }}
+      onClick={() => navigate(`/movies/${movie_id}`)} // Tıklanınca detay sayfasına git
     >
-      {/* Poster */}
       <CardMedia
         component="img"
         height="350"
         image={poster_url || placeholderPoster}
         alt={title}
-        sx={{
-          objectFit: 'cover',
-          backgroundColor: '#ddd'
-        }}
       />
 
-      <CardContent sx={{ p: 1.5 }}>
-        {/* Title */}
-        <Typography variant="h6" component="h2" noWrap>
-          {title}
-        </Typography>
+      <CardContent sx={{ p: 1.5 }} onClick={(e) => e.stopPropagation()}>
+        <Typography variant="h6" noWrap>{title}</Typography>
 
-        {/* Rating */}
         <Box sx={{ display: 'flex', alignItems: 'center', mt: 0.5 }}>
           <Rating
             value={Number(ratingForStars)}
@@ -83,69 +120,43 @@ const MovieCard = ({ movie }) => {
             emptyIcon={<StarIcon style={{ opacity: 0.4 }} fontSize="inherit" />}
             sx={{ fontSize: '1.2rem' }}
           />
-
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{ ml: 1, fontWeight: 'bold' }}
-          >
-            {finalRating ? finalRating.toFixed(1) : "N/A"}
+          <Typography sx={{ ml: 1, fontWeight: 'bold' }} variant="body2" color="text.secondary">
+            {finalRating.toFixed(1)}
           </Typography>
         </Box>
 
-        {/* Genres */}
         {parsedGenres.length > 0 && (
-          <Box
-            sx={{
-              mt: 1,
-              display: 'flex',
-              gap: 0.5,
-              flexWrap: 'wrap',
-            }}
-          >
+          <Box sx={{ mt: 1, display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
             {parsedGenres.map((tag, i) => (
-              <Chip
-                key={tag + i}
-                label={tag}
-                size="small"
-                color="secondary"
-                variant="outlined"
-              />
+              <Chip key={tag + i} label={tag} size="small" variant="outlined" />
             ))}
           </Box>
         )}
 
-        {/* Emotions */}
-        {predicted_emotions?.length > 0 && (
-          <Box
-            sx={{
-              mt: 1,
-              display: 'flex',
-              gap: 0.5,
-              flexWrap: 'wrap',
-            }}
+        <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+          <Button
+            variant="contained"
+            color={alreadyLiked ? "success" : "error"}
+            size="small"
+            fullWidth
+            startIcon={<FavoriteIcon />}
+            onClick={handleLike}
           >
-            {predicted_emotions.slice(0, 3).map((emotion, i) => (
-              <Chip
-                key={emotion + i}
-                label={emotion}
-                size="small"
-                color="primary"
-              />
-            ))}
-          </Box>
-        )}
+            {alreadyLiked ? "Beğenildi" : "Beğen"}
+          </Button>
 
-        {/* Similarity */}
-        {similarity_score && (
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ mt: 1, display: 'block' }}
+          <Button
+            variant="contained"
+            color={alreadyViewed ? "success" : "primary"}
+            size="small"
+            fullWidth
+            startIcon={<PlayArrowIcon />}
+            onClick={handleWatch}
+            disabled={alreadyViewed}
           >
-            Benzerlik: {(similarity_score * 100).toFixed(0)}%
-          </Typography>
-        )}
+            {alreadyViewed ? "Daha önce izledim" : "İzle"}
+          </Button>
+        </Stack>
       </CardContent>
     </Card>
   );
