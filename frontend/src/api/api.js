@@ -101,12 +101,17 @@ export const addHistoryItem = async (movie_id, interaction) => {
 
 // Alternatif: user_id gerekmeyen versiyon (backend current_user'dan alır)
 export const addHistoryItemSimple = async (movie_id, interaction) => {
-  const response = await api.post("/history", {
-    movie_id,
-    interaction,
-    user_id: null // veya hiç eklemeyin
-  });
-  return response.data;
+  try {
+    const response = await api.post("/history", {
+      movie_id,
+      interaction,
+      user_id: null // Backend current_user'dan alacak
+    });
+    return response.data;
+  } catch (error) {
+    console.error(`[API Error] History ekleme hatası (${interaction}):`, error.response?.data || error.message);
+    throw error.response?.data?.detail || error.response?.data?.message || "History eklenirken bir hata oluştu.";
+  }
 };
 
 // Kendi history listesi

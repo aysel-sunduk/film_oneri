@@ -5,6 +5,7 @@ import FavoriteBorderIcon from "@mui/icons-material/FavoriteBorder";
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StarIcon from '@mui/icons-material/Star';
 import {
+  Alert,
   Box,
   Button,
   Card,
@@ -23,11 +24,11 @@ import { useNavigate } from 'react-router-dom';
 
 // Sadece gerekli API fonksiyonlarını import ediyoruz
 import {
-  addHistoryItem,
+  addHistoryItemSimple,
   getHistoryByInteraction
 } from "../api/api";
 
-const MovieCard = ({ movie }) => {
+const MovieCard = ({ movie, onHistoryChange }) => {
   const navigate = useNavigate();
   const [alreadyViewed, setAlreadyViewed] = useState(false);
   const [alreadyLiked, setAlreadyLiked] = useState(false);
@@ -126,12 +127,47 @@ const MovieCard = ({ movie }) => {
 
     setLoading(true);
     try {
-      // user_id'yi göndermeye gerek yok, API fonksiyonu otomatik çekecek
-      const response = await addHistoryItem(movie_id, interactionType); 
+      // addHistoryItemSimple kullan - backend current_user'dan user_id alıyor, daha hızlı
+      const response = await addHistoryItemSimple(movie_id, interactionType); 
 
       // Backend'den dönen response'a göre state'i güncelle
       if (interactionType === "viewed") {
-        setAlreadyViewed(true);
+        // Backend toggle mantığı ile çalışıyor, response'dan is_viewed değerini al
+        const previousViewed = alreadyViewed;
+        let newViewedState = false;
+        if (response && response.is_viewed !== undefined) {
+          newViewedState = response.is_viewed;
+        } else {
+          // Fallback: Eğer response'da is_viewed yoksa, action'a göre belirle
+          if (response && response.action === "deleted") {
+            newViewedState = false;
+          } else if (response && response.action === "created") {
+            newViewedState = true;
+          }
+        }
+        
+        setAlreadyViewed(newViewedState);
+        
+        // İzleme durumu değiştiğinde alert göster - HER ZAMAN göster (kullanıcı aksiyon aldı)
+        if (newViewedState) {
+          // İzlendi olarak işaretlendi
+          setSnackbar({ open: true, message: '✅ Filmi izledim!', severity: 'success' });
+        } else {
+          // İzleme geçmişinden kaldırıldı
+          setSnackbar({ open: true, message: 'İzleme geçmişinden kaldırıldı', severity: 'info' });
+        }
+        
+        // Loading'i hemen kapat - kullanıcıyı bekletme
+        setLoading(false);
+        
+        // Parent component'e bildir (UserHistory sayfası için otomatik güncelleme)
+        // Async olarak çağır - kullanıcıyı bekletme (alert gösterildikten SONRA)
+        if (onHistoryChange) {
+          // setTimeout ile async yap - UI'ı bloklamasın, alert gösterildikten sonra çalışsın
+          setTimeout(() => {
+            onHistoryChange("viewed", newViewedState, movie_id);
+          }, 100); // 100ms gecikme - alert'in gösterilmesi için zaman ver
+        }
       } else if (interactionType === "liked") {
         const previousLiked = alreadyLiked;
         // Backend toggle mantığı ile çalışıyor, response'dan is_liked değerini al
@@ -149,19 +185,35 @@ const MovieCard = ({ movie }) => {
         
         setAlreadyLiked(newLikedState);
         
-        // Beğenilince konfeti patlat ve alert göster
-        if (newLikedState && !previousLiked) {
+        // Beğeni durumu değiştiğinde alert göster - HER ZAMAN göster (kullanıcı aksiyon aldı)
+        if (newLikedState) {
+          // Beğenildi - konfeti patlat
           triggerConfetti();
           setSnackbar({ open: true, message: '❤️ Beğenildi!', severity: 'success' });
-        } else if (!newLikedState && previousLiked) {
+        } else {
+          // Beğeni geri çekildi
           setSnackbar({ open: true, message: 'Beğeni geri çekildi', severity: 'info' });
+        }
+        
+        // Loading'i hemen kapat - kullanıcıyı bekletme
+        setLoading(false);
+        
+        // Parent component'e bildir (UserHistory sayfası için otomatik güncelleme)
+        // Async olarak çağır - kullanıcıyı bekletme (alert gösterildikten SONRA)
+        if (onHistoryChange) {
+          // setTimeout ile async yap - UI'ı bloklamasın, alert gösterildikten sonra çalışsın
+          setTimeout(() => {
+            onHistoryChange("liked", newLikedState, movie_id);
+          }, 100); // 100ms gecikme - alert'in gösterilmesi için zaman ver
         }
       }
 
       console.log(`History işlemi: ${interactionType}`, response);
     } catch (err) {
       console.error("History ekleme hatası:", err);
-      setSnackbar({ open: true, message: 'Bir hata oluştu', severity: 'error' });
+      // Daha detaylı hata mesajı göster
+      const errorMessage = typeof err === 'string' ? err : (err?.message || 'Bir hata oluştu');
+      setSnackbar({ open: true, message: `Hata: ${errorMessage}`, severity: 'error' });
     } finally {
       setLoading(false);
     }
@@ -176,8 +228,8 @@ const MovieCard = ({ movie }) => {
 
   const handleWatch = (e) => {
     e.stopPropagation();
-    // Zaten izlenmişse API isteği gönderme
-    if (!alreadyViewed) sendHistory("viewed");
+    // Backend toggle mantığı ile çalışıyor, her zaman API isteği gönder
+    sendHistory("viewed");
   };
 
   // Kart Tıklama İşlemi
@@ -270,10 +322,10 @@ const MovieCard = ({ movie }) => {
             fullWidth
             startIcon={<PlayArrowIcon />}
             onClick={handleWatch}
-            // İzlenmişse, geçmiş kontrolü veya anlık işlem sırasında devre dışı bırak
-            disabled={alreadyViewed || historyCheckLoading || loading} 
+            // Toggle için buton her zaman aktif (sadece yükleme sırasında devre dışı)
+            disabled={historyCheckLoading || loading} 
           >
-            {alreadyViewed ? "İzledin" : "İzledim"}
+            {alreadyViewed ? "İzledin ✓" : "İzledim"}
           </Button>
         </Stack>
         
@@ -287,23 +339,19 @@ const MovieCard = ({ movie }) => {
       
       {/* Snackbar Alert */}
       <Snackbar
+        key={snackbar.message} // Her mesaj değiştiğinde yeniden render et
         open={snackbar.open}
         autoHideDuration={3000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
-        <Box
-          sx={{
-            backgroundColor: snackbar.severity === 'success' ? '#4caf50' : snackbar.severity === 'error' ? '#f44336' : '#2196f3',
-            color: 'white',
-            padding: '12px 24px',
-            borderRadius: '8px',
-            fontWeight: 'bold',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-          }}
+        <Alert 
+          onClose={() => setSnackbar({ ...snackbar, open: false })} 
+          severity={snackbar.severity} 
+          sx={{ width: '100%' }}
         >
           {snackbar.message}
-        </Box>
+        </Alert>
       </Snackbar>
     </Card>
   );

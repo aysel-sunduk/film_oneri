@@ -12,9 +12,9 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 // API fonksiyonunuz
-import { getHistoryByInteraction } from '../api/api'; 
+import { getHistoryByInteraction } from '../api/api';
 // MovieCard bileşeniniz
-import MovieCard from '../components/MovieCard'; 
+import MovieCard from '../components/MovieCard';
 
 
 /**
@@ -153,13 +153,42 @@ const UserHistoryPage = () => {
   };
 
   /**
-   * Çıkış yap butonu
+   * MovieCard'dan gelen history değişikliklerini handle eder
+   * Beğeni veya izleme durumu değiştiğinde listeyi otomatik günceller
    */
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    // Opsiyonel: localStorage.removeItem("userId");
-    window.location.href = "/login"; // Giriş sayfasına yönlendir
-  };
+  const handleHistoryChange = useCallback((interactionType, isActive, movieId) => {
+    console.log(`History değişti: ${interactionType}, isActive: ${isActive}, movieId: ${movieId}`);
+    
+    if (interactionType === "liked") {
+      if (isActive) {
+        // Beğenildi - API'den yeniden çek (yeni eklenen film için)
+        getHistoryByInteraction("liked")
+          .then(data => {
+            if (data && Array.isArray(data.items)) {
+              setLikedMovies(data.items.map(item => item.movie));
+            }
+          })
+          .catch(err => console.error("Beğenilenler güncellenirken hata:", err));
+      } else {
+        // Beğeni geri çekildi - listeden anında çıkar (hızlı geri bildirim için)
+        setLikedMovies(prev => prev.filter(m => m.movie_id !== movieId));
+      }
+    } else if (interactionType === "viewed") {
+      if (isActive) {
+        // İzlendi - API'den yeniden çek (yeni eklenen film için)
+        getHistoryByInteraction("viewed")
+          .then(data => {
+            if (data && Array.isArray(data.items)) {
+              setWatchedMovies(data.items.map(item => item.movie));
+            }
+          })
+          .catch(err => console.error("İzlenenler güncellenirken hata:", err));
+      } else {
+        // İzleme geri çekildi - listeden anında çıkar (hızlı geri bildirim için)
+        setWatchedMovies(prev => prev.filter(m => m.movie_id !== movieId));
+      }
+    }
+  }, []);
 
   // Tab'e göre yükleme durumu
   const currentTabLoading = value === 0 ? loading.viewed : loading.liked;
@@ -181,13 +210,6 @@ const UserHistoryPage = () => {
             startIcon={isFetchingRef.current ? <CircularProgress size={20} color="inherit" /> : null}
           >
             {isFetchingRef.current ? 'Yenileniyor...' : 'Yenile'}
-          </Button>
-          <Button 
-            variant="outlined" 
-            color="error" 
-            onClick={handleLogout}
-          >
-            Çıkış Yap
           </Button>
         </Box>
       </Box>
@@ -227,8 +249,8 @@ const UserHistoryPage = () => {
           <Grid container spacing={4}>
             {currentMovieList.map(movie => (
               <Grid item key={movie.movie_id} xs={12} sm={6} md={4} lg={3}>
-                {/* MovieCard bileşeni */}
-                <MovieCard movie={movie} /> 
+                {/* MovieCard bileşeni - history değişikliklerini dinlemek için callback ekle */}
+                <MovieCard movie={movie} onHistoryChange={handleHistoryChange} /> 
               </Grid>
             ))}
           </Grid>
@@ -255,7 +277,7 @@ const UserHistoryPage = () => {
           <Grid container spacing={4}>
             {currentMovieList.map(movie => (
               <Grid item key={movie.movie_id} xs={12} sm={6} md={4} lg={3}>
-                <MovieCard movie={movie} /> 
+                <MovieCard movie={movie} onHistoryChange={handleHistoryChange} /> 
               </Grid>
             ))}
           </Grid>
