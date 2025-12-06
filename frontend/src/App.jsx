@@ -13,7 +13,7 @@ import Dashboard from "./pages/Dashboard";
 import Mood from "./pages/MoodSelection";
 import Movies from "./pages/RecommendedMovies";
 import History from "./pages/UserHistory";
-import MovieDetailPage from "./pages/MovieDetail";
+import MovieDetail from "./pages/MovieDetail";
 
 function AppContent() {
   const location = useLocation();
@@ -33,7 +33,8 @@ function AppContent() {
         <Route path="/mood" element={<Mood />} />
         <Route path="/movies" element={<Movies />} />
         <Route path="/history" element={<History />} />
-         <Route path="/movies/:id" element={<MovieDetailPage />} />
+        <Route path="/movies/:id" element={<MovieDetail />} />
+
       </Routes>
     </>
   );

@@ -52,7 +52,7 @@ export default function MoodSelection() {
     <Container maxWidth="md" sx={{ pb: 6 }}>
       <Typography
         variant="h3"
-        sx={{ mb: 2, fontWeight: 800, textAlign: "center" }}
+        sx={{mt: 20, mb: 2, fontWeight: 800, textAlign: "center" }}
       >
         Nasıl Hissediyorsun?
       </Typography>

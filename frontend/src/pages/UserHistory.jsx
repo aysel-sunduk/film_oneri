@@ -145,13 +145,7 @@ const UserHistoryPage = () => {
     setRetryCount(prev => prev + 1); // useEffect'i tetikler
   };
 
-  /**
-   * Yenile butonu
-   */
-  const handleRefresh = () => {
-    fetchHistory(true); // forceRefresh = true ile çağır
-  };
-
+  
   /**
    * MovieCard'dan gelen history değişikliklerini handle eder
    * Beğeni veya izleme durumu değiştiğinde listeyi otomatik günceller
@@ -197,22 +191,6 @@ const UserHistoryPage = () => {
 
   return (
     <Container component="main" sx={{ py: 6, minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
-        <Typography variant="h3" component="h1" color="primary">
-          Kullanıcı Geçmişi
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 2 }}>
-          <Button 
-            variant="outlined" 
-            color="primary" 
-            onClick={handleRefresh}
-            disabled={isFetchingRef.current}
-            startIcon={isFetchingRef.current ? <CircularProgress size={20} color="inherit" /> : null}
-          >
-            {isFetchingRef.current ? 'Yenileniyor...' : 'Yenile'}
-          </Button>
-        </Box>
-      </Box>
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={value} onChange={handleChange} centered indicatorColor="secondary" textColor="secondary">

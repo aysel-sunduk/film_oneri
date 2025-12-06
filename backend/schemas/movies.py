@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 from typing import List, Optional
 
 from pydantic import BaseModel
@@ -7,7 +7,7 @@ from pydantic import BaseModel
 class MovieBase(BaseModel):
     # Dataset kolonları (tam eşleşme)
     title: str
-    release_date: Optional[str] = None
+    release_date: Optional[str | date] = None   # ← GÜNCELLENDİ
     overview: str
     popularity: Optional[float] = None
     vote_count: Optional[int] = None
@@ -30,7 +30,7 @@ class MovieResponse(MovieBase):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        orm_mode = True   # ← SQLAlchemy modellerini düzgün parse eder
 
 
 class MovieListResponse(BaseModel):
@@ -38,5 +38,3 @@ class MovieListResponse(BaseModel):
     page: int
     limit: int
     items: List[MovieResponse]
-
-

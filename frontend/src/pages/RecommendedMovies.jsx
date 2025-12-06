@@ -116,9 +116,31 @@ export default function RecommendedMovies() {
 
   return (
     <Container sx={{ mt: 3 }}>
-      <Typography variant="h4" sx={{ mb: 3 }}>
-        Film Önerileri: {selectedMoodName.toUpperCase()}
-      </Typography>
+      <Box sx={{ mb: 3, textAlign: 'center' }}>
+  <Typography 
+    variant="h4" 
+    sx={{ 
+      fontWeight: 'bold', 
+      mb: 1,
+      background: 'linear-gradient(90deg, #6a11cb 0%, #a40fd1ff 100%)',
+      WebkitBackgroundClip: 'text',
+      WebkitTextFillColor: 'transparent',
+      letterSpacing: 1
+    }}
+  >
+    Film Önerileri
+  </Typography>
+
+  <Typography 
+    variant="subtitle1" 
+    sx={{ color: 'text.secondary', fontStyle: 'italic' }}
+  >
+    {selectedMoodName 
+      ? `Seçili Ruh Hali: ${selectedMoodName}` 
+      : 'Henüz bir ruh hali seçilmedi'}
+  </Typography>
+</Box>
+
 
       {error && (
         <Alert severity="warning" sx={{ mb: 3 }}>

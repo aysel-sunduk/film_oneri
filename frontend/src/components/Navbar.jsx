@@ -64,7 +64,7 @@ const Navbar = () => {
           {/* Sol Logo */}
           <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: { xs: 1, md: 0 } }}>
             <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', mr: 3 }}>
-              <MovieIcon sx={{ fontSize: 32, color: 'primary.main', mr: 1.5 }} />
+              <MovieIcon sx={{ fontSize: 40, color: 'primary.main', mr: 1.5 }} />
               <Typography
                 variant="h5"
                 component={Link}
@@ -98,7 +98,6 @@ const Navbar = () => {
           </Box>
 
           {/* Orta Menü */}
-          {/* Orta Menü */}
 <Box sx={{ display: { xs: 'none', md: 'flex' }, justifyContent: 'center', flexGrow: 1, gap: 1 }}>
   {isLoggedIn && navItems.map(item => (
     <Button
@@ -107,7 +106,9 @@ const Navbar = () => {
       to={item.path}
       sx={{
         color: location.pathname === item.path ? 'primary.main' : 'text.primary',
-        fontWeight: location.pathname === item.path ? 700 : 500,
+        fontWeight: location.pathname === item.path ? 700 : 600,
+        fontSize: '1.1rem', // yazı boyutu
+        letterSpacing: '0.5px', // harf aralığı
         borderBottom: location.pathname === item.path ? '3px solid #7c4dff' : '3px solid transparent',
         borderRadius: 0,
         px: 2,
@@ -121,6 +122,7 @@ const Navbar = () => {
     </Button>
   ))}
 </Box>
+
 
 
           {/* Sağ Menü */}
