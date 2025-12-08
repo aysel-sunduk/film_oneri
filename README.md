@@ -1,310 +1,95 @@
-# 🎬 Film Öneri Uygulaması
+# 🎬 Film Öneri Uygulaması (Duygu Tabanlı + Hibrit)
 
-Kullanıcıların duygu durumuna, tercihlerine ve izleme geçmişine göre kişiselleştirilmiş film önerileri sunan **full-stack web uygulaması**.
+Kullanıcının seçtiği duygulara, tür tercihlerine ve geçmiş etkileşimlerine göre **çeşitlendirilmiş** film önerileri sunan FastAPI + React uygulaması. AutoGluon ile eğitilmiş çoklu etiket duygu modelleri ve veritabanı etiketleri hibrit biçimde kullanılır.
 
-## ✨ Temel Özellikler
+## ✨ Öne Çıkanlar
+- **Auth & Profil:** JWT, bcrypt, kayıt/giriş.
+- **Duygu Tabanlı Öneri:** Seçilen mood’lara göre AutoGluon tahmini + veritabanı etiketleri.
+- **Çeşitlilik:** Popüler (%30) + rastgele (%50, `func.random`) + yeni (%20), 5x fetch ve ağır karıştırma; tür önceliği (`EMOTION_GENRE_MAP`) ve olasılık ağırlıklı benzerlik (70% prob, 30% Jaccard).
+- **Geçmiş Takibi:** İzle/Beğen butonları toggle; anında snackbar uyarısı; history sayfası otomatik güncellenir.
+- **Kalıcı Öneriler:** Son öneriler localStorage’da saklanır, sayfa değişse de korunur.
+- **Veritabanı/Kapasite:** NOT IN ID limiti (PostgreSQL param sınırı), boş adaylarda güvenli `max_workers`.
 
-✅ **Kullanıcı Yönetimi**
-- Kayıt (signup) ve giriş (login)
-- JWT token tabanlı güvenlik
-- Profil yönetimi
-
-✅ **Film Veritabanı**
-- 1000+ film (IMDB veri seti)
-- Gelişmiş arama ve filtreleme
-- Film detayları (yönetmen, oyuncular, puanlar vb.)
-
-✅ **Akıllı Öneri Sistemi**
-- 🎯 **İçerik Tabanlı Filtreleme** — Tür, puanı, yönetmen benzerlikleri
-- 🤖 **Duygu Tabanlı Öneriler** — Kullanıcının seçtiği mood'a uygun filmler
-- 🧠 **ML Tahminleri** — AutoML ile film açıklamasından duygu analizi
-
-✅ **Kullanıcı Geçmişi**
-- İzlenen filmler
-- Beğenilen filmler
-- Etkileşim takibi (geliştirilmiş öneriler için)
-
-✅ **Modern Teknoloji Stack**
-- **Backend:** FastAPI (Python)
-- **Frontend:** React 19 + Vite + Material-UI
-- **Veritabanı:** PostgreSQL
-- **Auth:** JWT + bcrypt
-- **Styling:** Emotion (CSS-in-JS)
-
----
-
-## 📁 Proje Yapısı
-
+## 📁 Yapı (özet)
 ```
-Film_oneri/
-│
-├── backend/                    # FastAPI uygulaması
-│   ├── app.py                 # Ana uygulama
-│   ├── config.py              # Konfigürasyon
-│   ├── requirements.txt        # Python bağımlılıkları
-│   │
-│   ├── core/
-│   │   └── auth.py            # JWT & şifre yönetimi
-│   │
-│   ├── db/
-│   │   ├── connection.py       # PostgreSQL bağlantısı
-│   │   ├── models.py           # SQLAlchemy ORM
-│   │   └── film_oneri.sql      # SQL şeması
-│   │
-│   ├── routers/
-│   │   ├── auth.py            # Kimlik doğrulama
-│   │   ├── movies.py          # Film yönetimi
-│   │   ├── history.py         # İzleme geçmişi
-│   │   ├── recommendation.py  # Öneriler
-│   │   └── tags.py            # Etiketleme
-│   │
-│   ├── schemas/
-│   │   └── *.py               # Pydantic şemaları
-│   │
-│   ├── services/
-│   │   ├── recommendation_service.py
-│   │   └── automl_predict.py
-│   │
-│   └── ml/
-│       ├── automl_train.py
-│       ├── preprocess.py
-│       └── model/
-│
-├── frontend/                   # React uygulaması
-│   ├── index.html
-│   ├── package.json
-│   ├── vite.config.js
-│   └── src/
-│       ├── App.jsx
-│       ├── pages/
-│       ├── components/
-│       ├── api/
-│       └── theme.js
-│
-├── SETUP.md                   # Kurulum rehberi
-├── PROJECT_SKELETON.md        # Proje mimarisi dokumentasyonu
-└── run_api.bat               # Windows başlangıç script'i
+backend/   FastAPI, SQLAlchemy, AutoGluon modelleri
+  app.py, config.py
+  routers/ (auth, movies, history, recommendation, tags, ratings)
+  ml/      (automl_train.py, modeller predictor_*)
+  db/      (connection, models, sql)
+frontend/  React 19 + Vite + MUI
+  src/pages (Home, MoodSelection, RecommendedMovies, MovieDetail, UserHistory, ...)
+  src/components (MovieCard, Navbar)
+  src/api (api.js, history.js, client.js)
+README.md (bu dosya)
+run_api.bat (Windows backend başlatma)
 ```
 
----
-
-## 🚀 Hızlı Başlangıç
-
-### 📦 Gereksinimler
-
-- Python 3.10+
-- Node.js 16+
+## 🚀 Kurulum
+### Gereksinimler
+- Python 3.10+ (AutoML için 3.10–3.12 önerilir)
+- Node.js 18+
 - PostgreSQL 12+
 
-### 1️⃣ Backend Kurulumu
-
+### Backend
 ```bash
-# Ortam değişkenlerini ayarla (Windows CMD)
+cd backend
+pip install -r requirements.txt
+# AutoML eğitim/evaluasyon için ek paketler:
+# pip install -r requirements_automl.txt
+
+# Ortam değişkenleri (örn.)
 setx DB_USER "postgres"
-setx DB_PASSWORD "senin_sifren"
+setx DB_PASSWORD "your_pass"
 setx DB_HOST "localhost"
 setx DB_PORT "5432"
 setx DB_NAME "film_oneri"
 
-# Terminali yeniden açtıktan sonra:
-cd backend
-pip install -r requirements.txt
-uvicorn app:app --reload
+uvicorn app:app --reload  # http://localhost:8000
 ```
 
-**API şu adresle çalışacak:** http://localhost:8000
-
-### 2️⃣ Frontend Kurulumu
-
+### Frontend
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev  # http://localhost:5173
 ```
 
-**Frontend şu adresle açılacak:** http://localhost:5173
+## 🧠 ML / AutoML
+- Araç: **AutoGluon Tabular** (1.4.0), çoklu etiket duygu sınıflandırması.
+- Veri: `movies` + `emotions` join; 8 duygu etiketi (mutlu, üzgün, stresli, motive, romantik, heyecanlı, nostaljik, rahat).
+- Özellikler: `overview` metni n‑gram + metin istatistikleri; OOM riskine karşı vocab küçültme.
+- Modeller: `backend/ml/model/predictor_*` klasörlerinde saklanır; `automl_train.py` ana eğitim dosyası. Değerlendirme için ayrı notebook kullanıldı (ana modeli bozmaz).
 
----
+## 🔌 API Uçları (seçme)
+- `POST /auth/register`, `POST /auth/login`
+- `GET /movies`, `GET /movies/search`, `GET /movies/{id}`
+- `POST /recommendations` (duygu + tür + geçmiş filtreleri; çeşitlendirme)
+- `POST /history` (izle/beğen toggle, user_id backend’de kimlikten alınır)
+- Swagger: `http://localhost:8000/docs`
 
-## 📚 API Dokümantasyonu
+## 🧭 Öneri Mantığı (kısa)
+- Kategori payı: popüler %30, rastgele %50 (PostgreSQL `func.random()`), yeni %20.
+- Tür uyumu: `EMOTION_GENRE_MAP` ile önceliklendirme, genre bonus skoru.
+- Benzerlik: Olasılık ağırlıklı (70%) + Jaccard (30%), güven bonusu; çeşitlilik faktörü.
+- Performans: NOT IN için param limiti 1000; boş adayda paralel işleme kapalı; `max_workers` ≥ 1.
 
-### 🔐 Kimlik Doğrulama
+## 🖥️ Frontend Davranışları
+- `MovieCard`: İzle/Beğen toggle, her tıklamada API; snackbar uyarıları; `onHistoryChange` ile history sayfasını canlı günceller.
+- `UserHistory`: Item silinince listeden anında düşer, eklenince yeniden fetch eder.
+- `RecommendedMovies`: Son öneriler localStorage’da tutulur; sayfa değişse de gösterilir.
 
+## 🧪 Test / Geliştirme
 ```bash
-# Kayıt
-curl -X POST http://localhost:8000/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "john",
-    "email": "john@example.com",
-    "password": "securepass123",
-    "mood": "happy"
-  }'
-
-# Giriş
-curl -X POST http://localhost:8000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "john@example.com",
-    "password": "securepass123"
-  }'
-```
-
-### 🎥 Filmler
-
-```bash
-# Listeyi getir
-curl http://localhost:8000/movies?page=1&limit=10&genre=Drama
-
-# Ara
-curl http://localhost:8000/movies/search?q=inception
-```
-
-### 🤖 Öneriler
-
-```bash
-curl -X POST http://localhost:8000/recommendations \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": 1,
-    "mood": "happy",
-    "genre": "Drama",
-    "limit": 10
-  }'
-```
-
-### 📖 Swagger UI
-
-Tüm endpoint'leri interaktif olarak test et:
-```
-http://localhost:8000/docs
-```
-
----
-
-## 🛠️ Geliştirme
-
-### Backend Testleri Çalıştır
-
-```bash
-cd backend
-pytest -v
-```
-
-### Kod Formatlama (Black)
-
-```bash
+# Backend test
+cd backend && pytest -v
+# Format
 black backend/
-```
-
-### Lint Kontrol (Flake8)
-
-```bash
+# Lint
 flake8 backend/
 ```
 
----
-
-## 📊 Veritabanı Şeması
-
-### Ana Tablolar
-
-| Tablo | Açıklama |
-|-------|----------|
-| `users` | Kullanıcı hesapları |
-| `movies` | Film verileri |
-| `emotions` | Film duygusal etiketleri |
-| `user_history` | İzleme geçmişi |
-| `movie_tags` | Film etiketleri |
-
-### Örnek Sorgu
-
-```sql
--- Kullanıcının happy filmlerini öner
-SELECT m.* FROM movies m
-JOIN emotions e ON m.movie_id = e.movie_id
-WHERE e.emotion_label LIKE '%happy%'
-  AND m.movie_id NOT IN (
-    SELECT movie_id FROM user_history 
-    WHERE user_id = 1
-  )
-ORDER BY m.imdb_rating DESC
-LIMIT 10;
-```
-
----
-
-## 🚢 Deployment
-
-### Docker (Opsiyonel)
-
-```bash
-# Backend Dockerfile
-docker build -t film-oneri-api ./backend
-docker run -p 8000:8000 film-oneri-api
-
-# Frontend Dockerfile
-docker build -t film-oneri-web ./frontend
-docker run -p 3000:3000 film-oneri-web
-```
-
-### Production Checklist
-
-- [ ] SECRET_KEY'i güvenli bir değerle değiştir
-- [ ] CORS origins'i kısıtla
-- [ ] PostgreSQL backup'ı yapılandır
-- [ ] SSL sertifikası ekle
-- [ ] Rate limiting implement et
-- [ ] Logging'i ayarla
-- [ ] Monitoring (Sentry, DataDog) entegrasyonu
-
----
-
-## 📝 Örnek Workflow
-
-1. **Kullanıcı kaydolur** → JWT token alır
-2. **Ruh halini seçer** (örn: "happy")
-3. **Backend öneriler getir** (`GET /recommendations`)
-4. **Film detayını görüntüle** (`GET /movies/{id}`)
-5. **İzledim işaretle** (`POST /history`)
-6. **Sistem kaydeder** ve sonraki öneriler iyileştirilir
-
----
-
-## 🐛 Bilinen Sorunlar
-
-- [ ] ML modeli henüz training verileri ile test edilmedi
-- [ ] ChatGPT API entegrasyonu pending
-- [ ] Frontend sayfa geçişlerinde loading state eklenecek
-
----
-
-## 🔄 Gelecek Özellikler
-
-- [ ] Sosyal paylaşım (yorum, beğeni)
-- [ ] Kolaboratif filtreleme (user-user öneriler)
-- [ ] Mobil uygulama (React Native)
-- [ ] Real-time notifications (WebSocket)
-- [ ] Admin dashboard
-- [ ] Analytics & insights
-
----
-
-## 📞 İletişim
-
-**Geliştirici:** Aysel Sunduk  
-**GitHub:** [aysel-sunduk/film_oneri](https://github.com/aysel-sunduk/film_oneri)  
-**Sorunlar:** GitHub Issues'de bildir
-
----
-
-## 📄 Lisans
-
-MIT License — Özgürce kullan ve modifike et
-
----
-
-**Proje Durumu:** 🔄 Aktif Geliştirme  
-**Son Güncelleme:** Kasım 2025  
-**Version:** 1.0.0
+## 📄 Lisans ve İletişim
+- Lisans: MIT
+- Geliştirici: Aysel Sündük,Tuğba Sümen
+- Kaynak repo: https://github.com/aysel-sunduk/film_oneri
